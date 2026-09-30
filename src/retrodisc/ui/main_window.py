@@ -12,17 +12,20 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from retrodisc.core import cleanup
+from retrodisc.core import cleanup, prefix
 from retrodisc.core.cleanup import Item
+from retrodisc.core.discs import find_discs
 from retrodisc.core.library import Game, Library, Step, pretty_name
 from retrodisc.core.steam import Steam, SteamError
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
+from retrodisc.ui.disc_switcher import insert_disc
 from retrodisc.ui.remove_dialog import RemoveDialog
 from retrodisc.ui.troubleshoot import TroubleshootDialog
 from retrodisc.ui.wizard.game_wizard import GameWizard
@@ -61,13 +64,15 @@ class MainWindow(QMainWindow):
         self.continue_button.clicked.connect(self.open_wizard)
         self.play_button = QPushButton(self.tr("Play"))
         self.play_button.clicked.connect(self.play)
+        self.disc_button = QPushButton(self.tr("Change disc"))
+        self.disc_button.clicked.connect(self.change_disc)
         self.fix_button = QPushButton(self.tr("Troubleshoot"))
         self.fix_button.clicked.connect(self.troubleshoot)
         self.remove_button = QPushButton(self.tr("Remove"))
         self.remove_button.clicked.connect(self.remove)
 
         buttons = QHBoxLayout()
-        for b in (add, self.continue_button, self.play_button, self.fix_button):
+        for b in (add, self.continue_button, self.play_button, self.disc_button, self.fix_button):
             buttons.addWidget(b)
         buttons.addStretch()
         buttons.addWidget(self.remove_button)
@@ -97,7 +102,12 @@ class MainWindow(QMainWindow):
         self.library.load()
         self.list.clear()
         for game in self.library.games:
-            item = QListWidgetItem(f"{game.name}\n{self._step_text(game)}")
+            detail = self._step_text(game)
+            if game.multi_disc:
+                detail = self.tr("{n} discs · {disc} in drive S: · {step}").format(
+                    n=len(game.discs), disc=game.disc_label(game.current_disc), step=detail
+                )
+            item = QListWidgetItem(f"{game.name}\n{detail}")
             item.setData(Qt.ItemDataRole.UserRole, game.id)
             self.list.addItem(item)
             if game.id == select:
@@ -120,19 +130,39 @@ class MainWindow(QMainWindow):
         self.play_button.setEnabled(
             game is not None and game.appid is not None and self.steam is not None
         )
+        self.disc_button.setVisible(game is not None and game.multi_disc)
+        self.disc_button.setEnabled(
+            game is not None
+            and game.appid is not None
+            and self.steam is not None
+            and prefix.drive_link(self.steam.prefix(game.appid)).is_symlink()
+        )
 
     # ---- actions -----------------------------------------------------------------------
 
     def add_game(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            self.tr("Choose the .cue file"),
+            self.tr("Choose the .cue file (any disc) or an .m3u playlist"),
             str(Path.home()),
-            self.tr("Cue sheets (*.cue *.CUE)"),
+            self.tr("Disc images (*.cue *.CUE *.m3u *.M3U)"),
         )
         if not path:
             return
-        game = self.library.add(Game(name=pretty_name(Path(path).stem), cue=path))
+        cues = [str(p) for p in find_discs(Path(path))] or [path]
+        if len(cues) > 1:
+            answer = QMessageBox.question(
+                self,
+                self.tr("Multi-disc game"),
+                self.tr("Found {n} discs:\n\n{names}\n\nAdd them all to this game?").format(
+                    n=len(cues), names="\n".join(Path(c).name for c in cues)
+                ),
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                cues = [path] if not path.lower().endswith(".m3u") else cues[:1]
+        game = Game(name=pretty_name(Path(cues[0]).stem), cue=cues[0])
+        game.set_discs(cues)
+        self.library.add(game)
         self.reload(select=game.id)
         self.open_wizard()
 
@@ -154,6 +184,23 @@ class MainWindow(QMainWindow):
         game = self.current()
         if game is not None:
             start_game(self, self.steam, game.appid)
+
+    def change_disc(self) -> None:
+        game = self.current()
+        if game is None or self.steam is None:
+            return
+        menu = QMenu(self)
+        for index, disc in enumerate(game.discs):
+            action = menu.addAction(f"{game.disc_label(index)} — {Path(disc.cue).name}")
+            action.setCheckable(True)
+            action.setChecked(index == game.current_disc)
+            action.setData(index)
+        chosen = menu.exec(self.disc_button.mapToGlobal(self.disc_button.rect().bottomLeft()))
+        if chosen is None or chosen.data() == game.current_disc:
+            return
+        if insert_disc(self, self.steam, game, int(chosen.data())):
+            self.library.update(game)
+            self.reload(select=game.id)
 
     def remove(self) -> None:
         game = self.current()

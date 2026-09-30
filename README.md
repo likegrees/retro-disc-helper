@@ -15,6 +15,13 @@ It automates the manual Proton workflow for running disc-image games on SteamOS:
    original disc's label and serial, and writes `s:=cdrom` into the prefix's `system.reg`
    (Protontricks is not needed).
 
+**Multi-disc games**: pick any disc's `.cue` (or an `.m3u` playlist) and the other discs are
+found automatically (Redump `(Disc N)` / `CDn` names). Each disc is converted and extracted into
+its own folder (`cd1`, `cd2`, …). Before installing, the app prepares the Proton prefix and puts
+disc 1 in drive S:, so the installer runs from S:. When it asks for the next disc, choose it in
+the wizard or with **Change disc** in the main window. Swapping works while the installer or game
+is running, and S: takes on each disc's own label and serial.
+
 The **Troubleshoot** window checks for the usual Proton problems and offers one-click fixes.
 
 A game's state is saved in `~/.local/share/retrodisc/games.json`, so setup can be resumed after the

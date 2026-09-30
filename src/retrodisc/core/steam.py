@@ -238,6 +238,60 @@ class Steam:
     def prefix(self, appid: int) -> Path:
         return self.compatdata(appid) / "pfx"
 
+    def prepare_prefix(self, appid: int, tool_name: str, timeout: float = 300.0) -> Path:
+        """Create the game's Proton prefix now, as its first launch from Steam would.
+
+        Lets drive S: exist before the installer runs, which multi-disc installers need to
+        find the next disc. Returns the prefix path.
+        """
+        pfx = self.prefix(appid)
+        if (pfx / "system.reg").exists():
+            return pfx
+        tool = next((t for t in self.proton_tools() if t.name == tool_name), None)
+        if tool is None or not (tool.path / "proton").exists():
+            raise SteamError(f"Proton version {tool_name} is not installed")
+        compat = self.compatdata(appid)
+        compat.mkdir(parents=True, exist_ok=True)
+        env = host_env() | {
+            "STEAM_COMPAT_DATA_PATH": str(compat),
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(self.root),
+            "SteamAppId": str(appid),
+            "SteamGameId": str(appid),
+        }
+        try:
+            subprocess.run(
+                [str(tool.path / "proton"), "run", "wineboot", "--init"],
+                env=env,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            # The registry files are written when wineserver exits; wait for it.
+            wineserver = next(
+                (
+                    w
+                    for w in (tool.path / "files/bin/wineserver", tool.path / "dist/bin/wineserver")
+                    if w.exists()
+                ),
+                None,
+            )
+            if wineserver is not None:
+                subprocess.run(
+                    [str(wineserver), "-w"],
+                    env=env | {"WINEPREFIX": str(pfx)},
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                )
+        except subprocess.TimeoutExpired as exc:
+            raise SteamError("Proton took too long to prepare the game") from exc
+        if not (pfx / "system.reg").exists():
+            raise SteamError(
+                "Proton did not create the prefix. Launch the game once from Steam, close it, "
+                "and try again."
+            )
+        return pfx
+
     # ---- shortcuts.vdf -----------------------------------------------------------------
 
     def _load_shortcuts(self) -> dict[str, Any]:

@@ -80,16 +80,30 @@ def setup_cd_drive(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
         raise PrefixError(
             "The Wine prefix does not exist yet. Launch the game once from Steam, then close it."
         )
-    if not cd_dir.is_dir():
-        raise PrefixError(f"CD folder not found: {cd_dir}")
-    link = drive_link(pfx)
-    link.parent.mkdir(parents=True, exist_ok=True)
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(cd_dir.resolve(), target_is_directory=True)
+    insert_disc(pfx, cd_dir, volume)
+    set_registry_drive_type(pfx, "cdrom")
+
+
+def write_volume_files(cd_dir: Path, volume: VolumeInfo) -> None:
+    """The label and serial Wine reports for a drive whose root is `cd_dir`."""
     (cd_dir / LABEL_FILE).write_text(volume.label)
     (cd_dir / SERIAL_FILE).write_text(volume.serial)
-    set_registry_drive_type(pfx, "cdrom")
+
+
+def insert_disc(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
+    """Point S: at `cd_dir`, like putting that disc in the drive. Safe while the game runs."""
+    if not cd_dir.is_dir():
+        raise PrefixError(f"CD folder not found: {cd_dir}")
+    if not (pfx / "dosdevices").is_dir():
+        raise PrefixError(
+            "The Wine prefix does not exist yet. Launch the game once from Steam, then close it."
+        )
+    write_volume_files(cd_dir, volume)
+    link = drive_link(pfx)
+    tmp = link.with_name("s:.new")
+    tmp.unlink(missing_ok=True)
+    tmp.symlink_to(cd_dir.resolve(), target_is_directory=True)
+    tmp.replace(link)  # atomic: S: is never missing while a game polls it
 
 
 # ---- system.reg (HKEY_LOCAL_MACHINE) editing ------------------------------------------

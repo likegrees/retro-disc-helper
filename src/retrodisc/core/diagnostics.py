@@ -34,83 +34,70 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
     results: list[CheckResult] = []
     add = results.append
 
-    # --- the disc image ------------------------------------------------------------------
-    sheet: CueSheet | None = None
-    try:
-        sheet = parse_cue(Path(game.cue))
-    except (CueError, OSError) as exc:
-        add(CheckResult(tr("Cue sheet readable"), Status.FAIL, str(exc)))
-    else:
-        add(
-            CheckResult(
-                tr("Cue sheet readable"), Status.OK, tr("{n} track(s)").format(n=len(sheet.tracks))
-            )
-        )
-        if sheet.audio_tracks:
+    def titled(title: str, index: int) -> str:
+        return f"{title} ({game.disc_label(index)})" if game.multi_disc else title
+
+    audio_tracks = 0
+    protections: dict[str, set[str]] = {}
+    for index, disc in enumerate(game.discs):
+        # --- the disc image --------------------------------------------------------------
+        sheet: CueSheet | None = None
+        try:
+            sheet = parse_cue(Path(disc.cue))
+        except (CueError, OSError) as exc:
+            add(CheckResult(titled(tr("Cue sheet readable"), index), Status.FAIL, str(exc)))
+        else:
+            audio_tracks += len(sheet.audio_tracks)
             add(
                 CheckResult(
-                    tr("CD audio tracks"),
-                    Status.WARN,
-                    tr(
-                        "{n} audio track(s): the CD music will not play under Proton. "
-                        "Use 86Box if the music matters."
-                    ).format(n=len(sheet.audio_tracks)),
+                    titled(tr("Cue sheet readable"), index),
+                    Status.OK,
+                    tr("{n} track(s)").format(n=len(sheet.tracks)),
                 )
             )
+        results.append(_iso_check(titled(tr("ISO image"), index), disc.iso, sheet))
 
-    iso_path = Path(game.iso) if game.iso else None
-    if iso_path is None:
-        add(CheckResult(tr("ISO image"), Status.SKIP, tr("Not converted yet")))
-    elif convert.is_valid_iso(iso_path):
-        add(CheckResult(tr("ISO image"), Status.OK, str(iso_path)))
-    else:
-        fix: Callable[[], None] | None = None
-        if sheet is not None:
-            sheet_ = sheet
+        # --- extracted CD ----------------------------------------------------------------
+        title = titled(tr("Extracted CD"), index)
+        if not disc.extracted:
+            missing = disc.cd_dir is None
+            add(
+                CheckResult(
+                    title,
+                    Status.SKIP if missing else Status.FAIL,
+                    tr("Not extracted yet") if missing else str(disc.cd_dir),
+                )
+            )
+            continue
+        cd_dir = Path(str(disc.cd_dir))
+        add(CheckResult(title, Status.OK, str(cd_dir)))
+        if index == 0:
+            results += _installer_checks(game, cd_dir, steam)
+        for hit in protection.scan(cd_dir):
+            protections.setdefault(hit.name, set()).update(hit.files)
 
-            def _fix() -> None:
-                convert.convert_to_iso(sheet_, iso_path)
-
-            fix = _fix
+    if audio_tracks:
         add(
             CheckResult(
-                tr("ISO image"),
-                Status.FAIL,
+                tr("CD audio tracks"),
+                Status.WARN,
                 tr(
-                    "Missing or not a valid ISO9660 image. Archive tools cannot open the .cue "
-                    'directly ("No suitable plugin found"); they need the converted .iso.'
-                ),
-                fix,
-                tr("Convert again"),
+                    "{n} audio track(s): the CD music will not play under Proton. "
+                    "Use 86Box if the music matters."
+                ).format(n=audio_tracks),
             )
         )
-
-    # --- extracted CD --------------------------------------------------------------------
-    cd_dir = Path(game.cd_dir) if game.cd_dir else None
-    if cd_dir is None or not cd_dir.is_dir():
+    for name, files in protections.items():
         add(
             CheckResult(
-                tr("Extracted CD"),
-                Status.SKIP if cd_dir is None else Status.FAIL,
-                tr("Not extracted yet") if cd_dir is None else str(cd_dir),
+                tr("Copy protection: {name}").format(name=name),
+                Status.WARN,
+                tr(
+                    "Found {files}. Wine usually cannot run this protection: if the game "
+                    "refuses to start, look for the GOG release or use 86Box."
+                ).format(files=", ".join(sorted(files))),
             )
         )
-        cd_dir = None
-    else:
-        add(CheckResult(tr("Extracted CD"), Status.OK, str(cd_dir)))
-        results += _installer_checks(game, cd_dir, steam)
-        hits = protection.scan(cd_dir)
-        for hit in hits:
-            add(
-                CheckResult(
-                    tr("Copy protection: {name}").format(name=hit.name),
-                    Status.WARN,
-                    tr(
-                        "Found {files}. Wine usually cannot run this protection: if the game "
-                        "refuses to start, look for the GOG release or use 86Box."
-                    ).format(files=", ".join(hit.files)),
-                )
-            )
 
     # --- Steam ---------------------------------------------------------------------------
     if steam is None:
@@ -167,8 +154,8 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
             )
         )
 
-    if game.cd_drive or game.run_from_cd:
-        results.append(_cd_drive_check(game, steam, cd_dir))
+    if game.cd_drive or game.run_from_cd or game.multi_disc:
+        results.append(_cd_drive_check(game, steam))
 
     if is_steam_running():
         add(
@@ -179,6 +166,32 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
             )
         )
     return results
+
+
+def _iso_check(title: str, iso_value: str | None, sheet: CueSheet | None) -> CheckResult:
+    if iso_value is None:
+        return CheckResult(title, Status.SKIP, tr("Not converted yet"))
+    iso_path = Path(iso_value)
+    if convert.is_valid_iso(iso_path):
+        return CheckResult(title, Status.OK, str(iso_path))
+    fix: Callable[[], None] | None = None
+    if sheet is not None:
+        sheet_ = sheet
+
+        def _fix() -> None:
+            convert.convert_to_iso(sheet_, iso_path)
+
+        fix = _fix
+    return CheckResult(
+        title,
+        Status.FAIL,
+        tr(
+            "Missing or not a valid ISO9660 image. Archive tools cannot open the .cue "
+            'directly ("No suitable plugin found"); they need the converted .iso.'
+        ),
+        fix,
+        tr("Convert again"),
+    )
 
 
 def _installer_checks(game: Game, cd_dir: Path, steam: Steam | None) -> list[CheckResult]:
@@ -233,11 +246,15 @@ def _installer_checks(game: Game, cd_dir: Path, steam: Steam | None) -> list[Che
     return results
 
 
-def _cd_drive_check(game: Game, steam: Steam, cd_dir: Path | None) -> CheckResult:
+def _cd_drive_check(game: Game, steam: Steam) -> CheckResult:
     assert game.appid is not None
     pfx = steam.prefix(game.appid)
+    disc = game.discs[game.current_disc]
+    cd_dir = Path(disc.cd_dir) if disc.extracted and disc.cd_dir else None
     status = prefix.cd_drive_status(pfx, cd_dir)
     title = tr("Drive S: (CD)")
+    if game.multi_disc:
+        title = tr("Drive S: ({disc} inserted)").format(disc=game.disc_label(game.current_disc))
     if not status.prefix_exists:
         return CheckResult(
             title, Status.FAIL, tr("Launch the game once from Steam so Proton creates its prefix.")
@@ -258,8 +275,8 @@ def _cd_drive_check(game: Game, steam: Steam, cd_dir: Path | None) -> CheckResul
     if not status.registry_ok:
         problems.append(tr("S: is not marked as a CD-ROM in the registry"))
     fix: Callable[[], None] | None = None
-    if cd_dir is not None and game.iso and Path(game.iso).exists():
-        info, cd = iso.volume_info(Path(game.iso)), cd_dir
+    if cd_dir is not None and disc.converted and disc.iso:
+        info, cd = iso.volume_info(Path(disc.iso)), cd_dir
 
         def _fix() -> None:
             prefix.setup_cd_drive(pfx, cd, info)

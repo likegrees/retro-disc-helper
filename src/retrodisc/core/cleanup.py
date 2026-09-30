@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,12 +31,14 @@ class Target:
 
 
 def source_files(game: Game) -> list[Path]:
-    """The user's original disc image files, which are never deleted."""
-    cue = Path(game.cue)
-    try:
-        return [cue, *{t.file for t in parse_cue(cue).tracks}]
-    except (CueError, OSError):
-        return [cue]
+    """The user's original disc image files (every disc), which are never deleted."""
+    files: list[Path] = []
+    for disc in game.discs:
+        cue = Path(disc.cue)
+        files.append(cue)
+        with contextlib.suppress(CueError, OSError):
+            files += {t.file for t in parse_cue(cue).tracks}
+    return files
 
 
 def protected_paths(game: Game, others: Iterable[Game]) -> list[Path]:
@@ -43,7 +46,8 @@ def protected_paths(game: Game, others: Iterable[Game]) -> list[Path]:
     for other in others:
         if other.id == game.id:
             continue
-        paths += [Path(p) for p in (other.cue, other.iso, other.cd_dir) if p]
+        for disc in other.discs:
+            paths += [Path(p) for p in (disc.cue, disc.iso, disc.cd_dir) if p]
     return paths
 
 
@@ -93,18 +97,21 @@ def plan(game: Game, steam: Steam | None, others: Iterable[Game] = ()) -> list[T
             size = None if blocked else disk_usage(compat)
             targets.append(Target(Item.PREFIX, compat, size, blocked))
 
-    if game.cd_dir and Path(game.cd_dir).is_dir():
-        cd_dir = Path(game.cd_dir)
-        blocked = why_not_deletable(cd_dir, protected)
-        # Never walk a folder that will not be deleted: it may be $HOME or "/".
-        targets.append(Target(Item.CD, cd_dir, None if blocked else disk_usage(cd_dir), blocked))
+    for disc in game.discs:
+        if disc.cd_dir and Path(disc.cd_dir).is_dir():
+            cd_dir = Path(disc.cd_dir)
+            blocked = why_not_deletable(cd_dir, protected)
+            # Never walk a folder that will not be deleted: it may be $HOME or "/".
+            size = None if blocked else disk_usage(cd_dir)
+            targets.append(Target(Item.CD, cd_dir, size, blocked))
 
-    if game.iso and Path(game.iso).is_file():
-        iso = Path(game.iso)
-        blocked = None
-        if any(iso.resolve() == p.resolve() for p in protected):
-            blocked = tr("{path} is an original disc file").format(path=iso)
-        targets.append(Target(Item.ISO, iso, iso.stat().st_size, blocked))
+    for disc in game.discs:
+        if disc.iso and Path(disc.iso).is_file():
+            iso = Path(disc.iso)
+            blocked = None
+            if any(iso.resolve() == p.resolve() for p in protected):
+                blocked = tr("{path} is an original disc file").format(path=iso)
+            targets.append(Target(Item.ISO, iso, iso.stat().st_size, blocked))
 
     return targets
 
@@ -117,16 +124,15 @@ def perform(
     Steam must be closed when Item.SHORTCUT is selected (SteamRunningError otherwise).
     """
     errors: list[str] = []
-    targets = {t.item: t for t in plan(game, steam, others)}
+    targets = plan(game, steam, others)
 
     # Steam first: if Steam is running this raises before any file is touched.
     if Item.SHORTCUT in items and steam is not None and game.appid is not None:
         steam.remove_compat_tool(game.appid)
         steam.remove_shortcut(game.appid)
 
-    for item in (Item.PREFIX, Item.CD, Item.ISO):
-        target = targets.get(item)
-        if item not in items or target is None or target.path is None:
+    for target in targets:
+        if target.item not in items or target.item is Item.SHORTCUT or target.path is None:
             continue
         if target.blocked:
             errors.append(target.blocked)
@@ -140,14 +146,11 @@ def perform(
             errors.append(f"{target.path}: {exc.strerror or exc}")
 
     # Remove the per-game folder ~/Documents/games/<Name> if nothing else is left in it.
-    for folder in {game.folder, *(p.parent for p in (_opt(game.iso), _opt(game.cd_dir)) if p)}:
+    parents = {Path(p).parent for d in game.discs for p in (d.iso, d.cd_dir) if p}
+    for folder in {game.folder, *parents}:
         try:
             if folder.is_dir() and not any(folder.iterdir()):
                 folder.rmdir()
         except OSError:
             pass
     return errors
-
-
-def _opt(value: str | None) -> Path | None:
-    return Path(value) if value else None

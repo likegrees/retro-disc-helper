@@ -27,9 +27,10 @@ from PySide6.QtWidgets import (
 
 from retrodisc.core import convert, exe_inspect, iso, prefix, protection
 from retrodisc.core.cue import CueError, CueSheet, parse_cue
-from retrodisc.core.library import Game, safe_name
+from retrodisc.core.library import Game
 from retrodisc.core.steam import Shortcut, Steam
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
+from retrodisc.ui.disc_switcher import DiscSwitcher
 from retrodisc.ui.workers import Reporter, run_with_progress
 
 if TYPE_CHECKING:
@@ -73,11 +74,21 @@ class DiscPage(BasePage):
     def __init__(self) -> None:
         super().__init__()
         self.setTitle(self.tr("Disc image"))
-        self.setSubTitle(self.tr("Check the tracks found in the .cue file and name the game."))
-        self.sheet: CueSheet | None = None
+        self.setSubTitle(
+            self.tr("Name the game and check its discs. Add the other discs of multi-disc games.")
+        )
+        self.sheets: list[CueSheet | None] = []
+        self.errors: list[str] = []
 
         self.name_edit = QLineEdit()
         self.name_edit.textChanged.connect(self.completeChanged)
+        self.discs = QListWidget()
+        self.discs.setMaximumHeight(170)
+        self.discs.currentRowChanged.connect(self._show_tracks)
+        add = QPushButton(self.tr("Add disc…"))
+        add.clicked.connect(self._add_disc)
+        self.remove = QPushButton(self.tr("Remove disc"))
+        self.remove.clicked.connect(self._remove_disc)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels([self.tr("Track"), self.tr("Type"), self.tr("File")])
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
@@ -85,47 +96,110 @@ class DiscPage(BasePage):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.info = _label(kind="warn")
 
+        buttons = QVBoxLayout()
+        buttons.addWidget(add)
+        buttons.addWidget(self.remove)
+        buttons.addStretch()
+        disc_row = QHBoxLayout()
+        disc_row.addWidget(self.discs, 1)
+        disc_row.addLayout(buttons)
+
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(self.tr("Game name")))
         layout.addWidget(self.name_edit)
+        layout.addWidget(QLabel(self.tr("Discs")))
+        layout.addLayout(disc_row)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.info)
 
     def initializePage(self) -> None:
         self.name_edit.setText(self.game.name)
-        try:
-            self.sheet = parse_cue(Path(self.game.cue))
-        except (CueError, OSError) as exc:
-            self.sheet = None
-            self.info.setObjectName("error")
-            self.info.setText(str(exc))
-            return
-        self.table.setRowCount(len(self.sheet.tracks))
-        for row, track in enumerate(self.sheet.tracks):
+        self._reload()
+
+    def _reload(self) -> None:
+        self.sheets, self.errors = [], []
+        self.discs.clear()
+        for index, disc in enumerate(self.game.discs):
+            try:
+                self.sheets.append(parse_cue(Path(disc.cue)))
+                self.errors.append("")
+            except (CueError, OSError) as exc:
+                self.sheets.append(None)
+                self.errors.append(str(exc))
+            self.discs.addItem(f"{self.game.disc_label(index)} — {Path(disc.cue).name}")
+        self.remove.setEnabled(self.game.multi_disc)
+        self.discs.setCurrentRow(0)
+        self._update_info()
+        self.completeChanged.emit()
+
+    def _show_tracks(self, row: int) -> None:
+        sheet = self.sheets[row] if 0 <= row < len(self.sheets) else None
+        self.table.setRowCount(len(sheet.tracks) if sheet else 0)
+        for i, track in enumerate(sheet.tracks if sheet else []):
             kind = (
                 self.tr("Data ({mode})").format(mode=track.mode)
                 if track.is_data
                 else self.tr("Audio")
             )
             for col, text in enumerate((f"{track.number:02d}", kind, track.file.name)):
-                self.table.setItem(row, col, QTableWidgetItem(text))
+                self.table.setItem(i, col, QTableWidgetItem(text))
         self.table.resizeColumnsToContents()
+
+    def _update_info(self) -> None:
         notes = []
-        if self.sheet.data_track is None:
-            notes.append(self.tr("No data track: this is an audio CD, not a game disc."))
-        if self.sheet.audio_tracks:
+        for index, (sheet, error) in enumerate(zip(self.sheets, self.errors, strict=True)):
+            label = self.game.disc_label(index)
+            if error:
+                notes.append(f"{label}: {error}")
+            elif sheet is not None and sheet.data_track is None:
+                notes.append(
+                    self.tr("{disc}: no data track, this is an audio CD.").format(disc=label)
+                )
+        audio = sum(len(s.audio_tracks) for s in self.sheets if s)
+        if audio:
             notes.append(
                 self.tr(
                     "{n} audio track(s): CD music will not play under Proton. If the music "
                     "matters, 86Box is the better choice."
-                ).format(n=len(self.sheet.audio_tracks))
+                ).format(n=audio)
+            )
+        if self.game.multi_disc:
+            notes.append(
+                self.tr(
+                    "Multi-disc game: each disc gets its own folder, and drive S: can switch "
+                    "between them when the game asks for another disc."
+                )
             )
         self.info.setText("\n".join(notes))
 
+    def _add_disc(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            self.tr("Add discs"),
+            str(Path(self.game.cue).parent),
+            self.tr("Cue sheets (*.cue *.CUE)"),
+        )
+        if paths:
+            cues = [d.cue for d in self.game.discs]
+            cues += [p for p in paths if p not in cues]
+            self._set_discs(cues)
+
+    def _remove_disc(self) -> None:
+        row = self.discs.currentRow()
+        cues = [d.cue for d in self.game.discs]
+        if len(cues) > 1 and 0 <= row < len(cues):
+            del cues[row]
+            self._set_discs(cues)
+
+    def _set_discs(self, cues: list[str]) -> None:
+        self.game.set_discs(cues)
+        self.gw.save()
+        self._reload()
+
     def isComplete(self) -> bool:
         return (
-            self.sheet is not None
-            and self.sheet.data_track is not None
+            bool(self.sheets)
+            and all(s is not None and s.data_track is not None for s in self.sheets)
             and bool(self.name_edit.text().strip())
         )
 
@@ -153,60 +227,76 @@ class ConvertPage(BasePage):
         self.status = _label()
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(self.tr("ISO file")))
+        layout.addWidget(QLabel(self.tr("Save the ISO in")))
         layout.addLayout(_row(self.path_edit, browse))
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.status)
         layout.addStretch()
 
     def initializePage(self) -> None:
-        default = self.game.folder / f"{safe_name(self.game.name)}.iso"
-        self.path_edit.setText(self.game.iso or str(default))
+        existing = next((d.iso for d in self.game.discs if d.iso), None)
+        folder = Path(existing).parent if existing else self.game.folder
+        self.path_edit.setText(str(folder))
         self._refresh()
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, self.tr("Save ISO as"), self.path_edit.text(), "ISO (*.iso)"
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("Save the ISO in"), self.path_edit.text()
         )
         if path:
             self.path_edit.setText(path)
 
     def _convert(self) -> None:
-        output = Path(self.path_edit.text()).expanduser()
+        folder = Path(self.path_edit.text()).expanduser()
+        again = all(d.converted for d in self.game.discs)
+        todo = [(i, d) for i, d in enumerate(self.game.discs) if again or not d.converted]
         try:
-            sheet = parse_cue(Path(self.game.cue))
-            output.parent.mkdir(parents=True, exist_ok=True)
+            folder.mkdir(parents=True, exist_ok=True)
+            for n, (index, disc) in enumerate(todo, start=1):
+                sheet = parse_cue(Path(disc.cue))
+                output = folder / self.game.default_iso(index).name
+                title = self.tr("Creating ISO…")
+                if self.game.multi_disc:
+                    title = self.tr("Creating ISO for {disc} ({n} of {total})…").format(
+                        disc=self.game.disc_label(index), n=n, total=len(todo)
+                    )
 
-            def job(report: Reporter) -> Path:
-                return convert.convert_to_iso(
-                    sheet, output, progress=lambda done, total: report(done, total, "")
-                )
+                def job(report: Reporter, sheet: CueSheet = sheet, output: Path = output) -> Path:
+                    return convert.convert_to_iso(
+                        sheet, output, progress=lambda done, total: report(done, total, "")
+                    )
 
-            run_with_progress(self, self.tr("Creating ISO…"), job)
+                run_with_progress(self, title, job)
+                disc.iso = str(output)
+                self.game.update_disc(index, disc)
+                self.gw.save()
         except Exception as exc:
             show_error(self, exc)
-            return
-        self.game.iso = str(output)
         self.save()
         self._refresh()
 
     def _refresh(self) -> None:
-        iso_path = Path(self.game.iso) if self.game.iso else None
-        if iso_path and convert.is_valid_iso(iso_path):
-            info = iso.volume_info(iso_path)
-            self.status.setObjectName("ok")
-            self.status.setText(
-                self.tr("ISO ready. Volume label: {label}, serial: {serial}").format(
-                    label=info.label, serial=info.serial
+        lines = []
+        for index, disc in enumerate(self.game.discs):
+            prefix_ = f"{self.game.disc_label(index)}: " if self.game.multi_disc else ""
+            if disc.iso and convert.is_valid_iso(Path(disc.iso)):
+                info = iso.volume_info(Path(disc.iso))
+                lines.append(
+                    prefix_
+                    + self.tr("ISO ready. Volume label: {label}, serial: {serial}").format(
+                        label=info.label, serial=info.serial
+                    )
                 )
-            )
-            self.button.setText(self.tr("Create again"))
-        else:
-            self.status.setText("")
+            elif self.game.multi_disc:
+                lines.append(prefix_ + self.tr("not converted yet"))
+        done = self.isComplete()
+        self.status.setObjectName("ok" if done else "")
+        self.status.setText("\n".join(lines))
         self.status.style().polish(self.status)
+        self.button.setText(self.tr("Create again") if done else self.tr("Create ISO"))
 
     def isComplete(self) -> bool:
-        return self.game.iso is not None and convert.is_valid_iso(Path(self.game.iso))
+        return all(d.iso and convert.is_valid_iso(Path(d.iso)) for d in self.game.discs)
 
 
 # ---- 3. Extract ----------------------------------------------------------------------------
@@ -226,6 +316,7 @@ class ExtractPage(BasePage):
         browse.clicked.connect(self._browse)
         self.button = QPushButton(self.tr("Extract"))
         self.button.clicked.connect(self._extract)
+        self.where = _label(kind="hint")
 
         self.installer = QComboBox()
         self.installer.currentIndexChanged.connect(self._installer_changed)
@@ -244,43 +335,72 @@ class ExtractPage(BasePage):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(self.tr("Destination folder")))
         layout.addLayout(_row(self.path_edit, browse))
+        layout.addWidget(self.where)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.details)
         layout.addStretch()
 
     def initializePage(self) -> None:
-        self.path_edit.setText(self.game.cd_dir or str(self.game.folder / "cd"))
-        self.cd_check.setChecked(self.game.cd_drive)
+        existing = next((d.cd_dir for d in self.game.discs if d.cd_dir), None)
+        folder = Path(existing).parent if existing else self.game.folder
+        self.path_edit.setText(str(folder))
+        if self.game.multi_disc:
+            self.cd_check.setChecked(True)
+            self.cd_check.setEnabled(False)
+            self.cd_check.setText(self.tr("Multi-disc game: drive S: is always used"))
+        else:
+            self.cd_check.setChecked(self.game.cd_drive)
         self._refresh()
+
+    def _targets(self) -> list[Path]:
+        folder = Path(self.path_edit.text()).expanduser()
+        return [folder / self.game.default_cd_dir(i).name for i in range(len(self.game.discs))]
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, self.tr("Extract to"), self.path_edit.text())
         if path:
             self.path_edit.setText(path)
+            self._refresh()
 
     def _extract(self) -> None:
-        dest = Path(self.path_edit.text()).expanduser()
-        assert self.game.iso is not None
-        iso_path = Path(self.game.iso)
+        again = all(d.extracted for d in self.game.discs)
+        targets = self._targets()
         try:
+            for index, disc in enumerate(self.game.discs):
+                if disc.extracted and not again:
+                    continue
+                assert disc.iso is not None
+                iso_path, dest = Path(disc.iso), targets[index]
+                title = self.tr("Extracting…")
+                if self.game.multi_disc:
+                    title = self.tr("Extracting {disc}…").format(disc=self.game.disc_label(index))
 
-            def job(report: Reporter) -> Path:
-                return iso.extract(iso_path, dest, progress=report)
+                def job(report: Reporter, iso_path: Path = iso_path, dest: Path = dest) -> Path:
+                    return iso.extract(iso_path, dest, progress=report)
 
-            run_with_progress(self, self.tr("Extracting…"), job)
+                run_with_progress(self, title, job)
+                disc.cd_dir = str(dest)
+                self.game.update_disc(index, disc)
+                self.gw.save()
         except Exception as exc:
             show_error(self, exc)
-            return
-        self.game.cd_dir = str(dest)
         self.game.installer = None
         self.save()
         self._refresh()
 
     def _refresh(self) -> None:
+        self.where.setText(
+            self.tr("Extracted to: {folders}").format(
+                folders=", ".join(p.name for p in self._targets())
+            )
+            if self.game.multi_disc
+            else ""
+        )
         cd_dir = Path(self.game.cd_dir) if self.game.cd_dir else None
-        extracted = cd_dir is not None and cd_dir.is_dir()
+        extracted = all(d.extracted for d in self.game.discs)
         self.details.setVisible(extracted)
         if not extracted or cd_dir is None:
+            self.button.setText(self.tr("Extract"))
             return
         self.button.setText(self.tr("Extract again"))
 
@@ -310,8 +430,6 @@ class ExtractPage(BasePage):
         self.gw.save()
 
     def _update_warnings(self) -> None:
-        assert self.game.cd_dir is not None
-        cd_dir = Path(self.game.cd_dir)
         notes: list[str] = []
         if self.game.installer:
             installer = Path(self.game.installer)
@@ -329,21 +447,24 @@ class ExtractPage(BasePage):
                         "if it is in the list."
                     )
                 )
-        for hit in protection.scan(cd_dir):
+        found: dict[str, set[str]] = {}
+        for disc in self.game.discs:
+            if disc.extracted and disc.cd_dir:
+                for hit in protection.scan(Path(disc.cd_dir)):
+                    found.setdefault(hit.name, set()).update(hit.files)
+        for name, files in found.items():
             notes.append(
                 self.tr(
                     "{name} copy protection detected ({files}). Wine usually cannot run it: "
                     "if the game refuses to start, look for the GOG release or use 86Box."
-                ).format(name=hit.name, files=", ".join(hit.files))
+                ).format(name=name, files=", ".join(sorted(files)))
             )
             self.cd_check.setChecked(True)
         self.warnings.setText("\n\n".join(notes))
 
     def isComplete(self) -> bool:
-        return (
-            self.game.cd_dir is not None
-            and Path(self.game.cd_dir).is_dir()
-            and (self.game.installer is not None or self.game.run_from_cd)
+        return all(d.extracted for d in self.game.discs) and (
+            self.game.installer is not None or self.game.run_from_cd
         )
 
 
@@ -445,6 +566,7 @@ class InstallPage(BasePage):
         self.button = QPushButton(self.tr("Run the installer from Steam"))
         self.button.clicked.connect(self._run)
         self.status = _label(kind="ok")
+        self.switcher = DiscSwitcher(self._disc_changed)
         self.done = QCheckBox(self.tr("The installation finished"))
         self.done.toggled.connect(self._done_toggled)
 
@@ -452,6 +574,7 @@ class InstallPage(BasePage):
         layout.addWidget(self.help)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.status)
+        layout.addWidget(self.switcher)
         layout.addWidget(self.done)
         layout.addStretch()
 
@@ -465,19 +588,68 @@ class InstallPage(BasePage):
             return
         self.button.show()
         self.done.show()
-        self.help.setText(
-            self.tr(
-                "Steam starts the installer with Proton. Keep the default install path and "
-                "accept DirectX if it is offered.\n\n"
-                "• The first start can take a minute while Proton prepares its files.\n"
-                "• If the installer closes immediately, run Troubleshoot from the main window.\n\n"
-                "When the installer is done, come back here and tick the box below."
+        text = self.tr(
+            "Steam starts the installer with Proton. Keep the default install path and "
+            "accept DirectX if it is offered.\n\n"
+            "• The first start can take a minute while Proton prepares its files.\n"
+            "• If the installer closes immediately, run Troubleshoot from the main window.\n\n"
+            "When the installer is done, come back here and tick the box below."
+        )
+        if self.game.multi_disc:
+            text += "\n\n" + self.tr(
+                "This game has {n} discs. Disc 1 is put in drive S: before the installer "
+                "starts. When the installer asks for the next disc, choose it below, then "
+                "click OK in the installer."
+            ).format(n=len(self.game.discs))
+        self.help.setText(text)
+        self.switcher.setVisible(self.game.multi_disc)
+        self.switcher.bind(self.gw.steam, self.game)
+        self.done.setChecked(self.game.installed)
+
+    def _needs_drive(self) -> bool:
+        return self.game.multi_disc
+
+    def _prepare_drive(self) -> bool:
+        """Create the Proton prefix and put disc 1 in S:, so the installer runs from S:."""
+        steam, appid, proton = self.gw.steam, self.game.appid, self.game.proton
+        disc = self.game.discs[0]
+        if steam is None or appid is None or proton is None or not disc.cd_dir or not disc.iso:
+            show_error(self, self.tr("Add the game to Steam first."))
+            return False
+        cd_dir, iso_path = Path(disc.cd_dir), Path(disc.iso)
+
+        def job(_report: Reporter) -> None:
+            pfx = steam.prepare_prefix(appid, proton)
+            prefix.setup_cd_drive(pfx, cd_dir, iso.volume_info(iso_path))
+
+        try:
+            run_with_progress(
+                self,
+                self.tr("Preparing Proton and drive S: (up to a minute)…"),
+                job,
+                cancellable=False,
+            )
+        except Exception as exc:
+            show_error(self, exc)
+            return False
+        self.game.current_disc = 0
+        self.game.cd_drive = True
+        self.gw.save()
+        self.switcher.bind(steam, self.game)
+        return True
+
+    def _disc_changed(self) -> None:
+        self.gw.save()
+        self.status.setText(
+            self.tr("Drive S: now holds {disc}.").format(
+                disc=self.game.disc_label(self.game.current_disc)
             )
         )
-        self.done.setChecked(self.game.installed)
 
     def _run(self) -> None:
         assert self.game.appid is not None
+        if self._needs_drive() and not self._prepare_drive():
+            return
         self.game.install_started = self.game.install_started or time.time()
         self.gw.save()
         if start_game(self, self.gw.steam, self.game.appid):
@@ -532,6 +704,8 @@ class FinalizePage(BasePage):
         cd_layout.addWidget(QLabel(self.tr("CD drive")))
         cd_layout.addWidget(self.cd_status)
         cd_layout.addWidget(self.cd_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.switcher = DiscSwitcher(self._disc_changed)
+        cd_layout.addWidget(self.switcher)
 
         self.apply = QPushButton(self.tr("Update Steam shortcut"))
         self.apply.clicked.connect(self._apply)
@@ -624,13 +798,14 @@ class FinalizePage(BasePage):
 
     def _setup_cd(self) -> None:
         steam = self.gw.steam
-        if steam is None or self.game.appid is None or not self.game.cd_dir or not self.game.iso:
+        disc = self.game.discs[self.game.current_disc]
+        if steam is None or self.game.appid is None or not disc.cd_dir or not disc.iso:
             return
         try:
             prefix.setup_cd_drive(
                 steam.prefix(self.game.appid),
-                Path(self.game.cd_dir),
-                iso.volume_info(Path(self.game.iso)),
+                Path(disc.cd_dir),
+                iso.volume_info(Path(disc.iso)),
             )
         except Exception as exc:
             show_error(self, exc)
@@ -644,19 +819,27 @@ class FinalizePage(BasePage):
         show = (
             steam is not None
             and self.game.appid is not None
-            and (self.game.cd_drive or self.game.run_from_cd)
+            and (self.game.cd_drive or self.game.run_from_cd or self.game.multi_disc)
         )
         self.cd_box.setVisible(show)
         if not show or steam is None or self.game.appid is None:
             return
-        cd_dir = Path(self.game.cd_dir) if self.game.cd_dir else None
+        self.switcher.setVisible(self.game.multi_disc)
+        self.switcher.bind(steam, self.game)
+        disc = self.game.discs[self.game.current_disc]
+        cd_dir = Path(disc.cd_dir) if disc.cd_dir else None
         status = prefix.cd_drive_status(steam.prefix(self.game.appid), cd_dir)
         if status.ok:
-            self.cd_status.setText(
-                self.tr("S: is the game CD ({label}, serial {serial}).").format(
-                    label=status.label, serial=status.serial
-                )
+            text = self.tr("S: is the game CD ({label}, serial {serial}).").format(
+                label=status.label, serial=status.serial
             )
+            if self.game.multi_disc:
+                text = self.tr("S: holds {disc} ({label}, serial {serial}).").format(
+                    disc=self.game.disc_label(self.game.current_disc),
+                    label=status.label,
+                    serial=status.serial,
+                )
+            self.cd_status.setText(text)
             self.cd_button.setText(self.tr("Set up drive S: again"))
         elif not status.prefix_exists:
             self.cd_status.setText(
@@ -666,6 +849,10 @@ class FinalizePage(BasePage):
             self.cd_status.setText(
                 self.tr("Makes the extracted folder look like the original CD to the game.")
             )
+
+    def _disc_changed(self) -> None:
+        self.gw.save()
+        self._refresh_cd()
 
     def _refresh(self) -> None:
         self.play.setEnabled(self.game.appid is not None)

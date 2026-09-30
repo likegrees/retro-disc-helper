@@ -11,6 +11,8 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any
 
+from retrodisc.i18n import tr
+
 
 def data_dir() -> Path:
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
@@ -32,7 +34,24 @@ class Step(IntEnum):
 
 
 @dataclass
+class Disc:
+    cue: str
+    iso: str | None = None
+    cd_dir: str | None = None
+
+    @property
+    def converted(self) -> bool:
+        return self.iso is not None and Path(self.iso).is_file()
+
+    @property
+    def extracted(self) -> bool:
+        return self.cd_dir is not None and Path(self.cd_dir).is_dir()
+
+
+@dataclass
 class Game:
+    """A game. Disc 1 lives in `cue`/`iso`/`cd_dir` (the original single-disc format)."""
+
     name: str
     cue: str
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -47,13 +66,48 @@ class Game:
     run_from_cd: bool = False
     cd_drive: bool = False
     notes: list[str] = field(default_factory=list)
+    more_discs: list[Disc] = field(default_factory=list)  # disc 2, 3, ...
+    current_disc: int = 0  # index of the disc drive S: shows
+
+    @property
+    def discs(self) -> list[Disc]:
+        """All discs in order. Disc 1 is a snapshot: change it with update_disc()."""
+        return [Disc(self.cue, self.iso, self.cd_dir), *self.more_discs]
+
+    @property
+    def multi_disc(self) -> bool:
+        return bool(self.more_discs)
+
+    def update_disc(self, index: int, disc: Disc) -> None:
+        if index == 0:
+            self.cue, self.iso, self.cd_dir = disc.cue, disc.iso, disc.cd_dir
+        else:
+            self.more_discs[index - 1] = disc
+
+    def set_discs(self, cues: list[str]) -> None:
+        """Replace the disc list, keeping conversion/extraction of discs that stay."""
+        known = {d.cue: d for d in self.discs}
+        discs = [known.get(c, Disc(c)) for c in cues]
+        self.update_disc(0, discs[0])
+        self.more_discs = discs[1:]
+        self.current_disc = min(self.current_disc, len(discs) - 1)
+
+    def disc_label(self, index: int) -> str:
+        return tr("Disc {n}").format(n=index + 1)
+
+    def default_iso(self, index: int) -> Path:
+        suffix = f" (Disc {index + 1})" if self.multi_disc else ""
+        return self.folder / f"{safe_name(self.name)}{suffix}.iso"
+
+    def default_cd_dir(self, index: int) -> Path:
+        return self.folder / (f"cd{index + 1}" if self.multi_disc else "cd")
 
     @property
     def step(self) -> Step:
         """First unfinished step."""
-        if self.iso is None or not Path(self.iso).exists():
+        if not all(d.converted for d in self.discs):
             return Step.CONVERT
-        if self.cd_dir is None or not Path(self.cd_dir).is_dir():
+        if not all(d.extracted for d in self.discs):
             return Step.EXTRACT
         if self.appid is None:
             return Step.ADD_TO_STEAM
@@ -71,7 +125,9 @@ class Game:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Game:
         known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in raw.items() if k in known})
+        values = {k: v for k, v in raw.items() if k in known}
+        values["more_discs"] = [Disc(**d) for d in values.get("more_discs", [])]
+        return cls(**values)
 
 
 def safe_name(name: str) -> str:
