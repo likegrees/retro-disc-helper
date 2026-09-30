@@ -24,6 +24,7 @@ STEAM_ROOT_CANDIDATES = (
 STEAMID64_BASE = 76561197960265728
 COMPAT_PRIORITY = "250"
 LAUNCH_CHECK_SECONDS = 5.0
+PROTON_INSTALL_APPID = 2805730  # "Proton 9.0" in Steam (Library > Tools)
 
 
 class SteamError(Exception):
@@ -42,8 +43,9 @@ class ProtonTool:
 
     @property
     def is_stable(self) -> bool:
-        lowered = f"{self.name} {self.display_name}".lower()
-        return not any(w in lowered for w in ("experimental", "hotfix", "beta", "next"))
+        # Judge by Steam's internal name: Valve's folder for proton_9 is called
+        # "Proton 9.0 (Beta)" even though it is the regular release.
+        return not any(w in self.name.lower() for w in ("experimental", "hotfix", "next"))
 
 
 @dataclass(frozen=True)
@@ -130,7 +132,16 @@ def shutdown_steam(timeout: float = 60.0) -> bool:
 
 def launch(shortcut: Shortcut) -> None:
     """Ask Steam to run the shortcut (starting Steam if needed). Raises SteamError."""
-    url = f"steam://rungameid/{shortcut.game_id}"
+    open_steam_url(f"steam://rungameid/{shortcut.game_id}", "start the game")
+
+
+def install_proton() -> None:
+    """Open Steam's install dialog for the recommended Proton. Raises SteamError."""
+    open_steam_url(f"steam://install/{PROTON_INSTALL_APPID}", "install Proton")
+
+
+def open_steam_url(url: str, what: str) -> None:
+    """Hand a steam:// link to Steam (starting it if needed). Raises SteamError."""
     errors: list[str] = []
     for command in (["xdg-open", url], ["steam", url]):
         # A file, not a pipe: Steam keeps writing to stderr and would block on a full pipe.
@@ -155,7 +166,7 @@ def launch(shortcut: Shortcut) -> None:
             log.seek(0)
             stderr = log.read().decode(errors="replace").strip()[-300:]
             errors.append(f"{command[0]} exited with {code}" + (f": {stderr}" if stderr else ""))
-    raise SteamError("Could not ask Steam to start the game.\n" + "\n".join(errors))
+    raise SteamError(f"Could not ask Steam to {what}.\n" + "\n".join(errors))
 
 
 class Steam:

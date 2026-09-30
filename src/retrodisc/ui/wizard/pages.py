@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QHideEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -26,7 +27,7 @@ from PySide6.QtWidgets import (
 from retrodisc.core import convert, exe_inspect, iso, prefix, protection
 from retrodisc.core.cue import CueError, CueSheet, parse_cue
 from retrodisc.core.library import Game
-from retrodisc.core.steam import Shortcut, Steam
+from retrodisc.core.steam import Shortcut, Steam, SteamError, install_proton
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
 from retrodisc.ui.disc_switcher import DiscSwitcher
 from retrodisc.ui.widgets import SafeComboBox
@@ -531,10 +532,31 @@ class SteamPage(BasePage):
         self.button.clicked.connect(self._add)
         self.status = _label(kind="ok")
 
+        # Shown while no Proton is installed; rechecks until Steam finished installing one.
+        self.no_proton = QWidget()
+        no_proton_layout = QVBoxLayout(self.no_proton)
+        no_proton_layout.setContentsMargins(0, 0, 0, 0)
+        self.no_proton_text = _label(
+            self.tr(
+                "No Proton is installed in Steam yet, and games from Windows need it. "
+                "Install it here: Steam opens its install window, confirm with Install. "
+                "This page updates by itself when Proton is ready."
+            ),
+            kind="warn",
+        )
+        install = QPushButton(self.tr("Install Proton 9.0"))
+        install.clicked.connect(self._install_proton)
+        no_proton_layout.addWidget(self.no_proton_text)
+        no_proton_layout.addWidget(install, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.proton_poll = QTimer(self)
+        self.proton_poll.setInterval(3000)
+        self.proton_poll.timeout.connect(self._fill_protons)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.steam_info)
         layout.addWidget(QLabel(self.tr("Proton version")))
         layout.addWidget(self.proton)
+        layout.addWidget(self.no_proton)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.status)
         self.winver = WindowsVersionBox(self.gw_save)
@@ -544,6 +566,7 @@ class SteamPage(BasePage):
     def initializePage(self) -> None:
         steam = self.gw.steam
         self.proton.clear()
+        self.no_proton.hide()
         if steam is None:
             self.steam_info.setObjectName("error")
             self.steam_info.setText(self.tr("Steam was not found. Install and log in to Steam."))
@@ -552,11 +575,40 @@ class SteamPage(BasePage):
         self.steam_info.setText(
             self.tr("Steam: {root} (user {user})").format(root=steam.root, user=steam.user_id)
         )
-        for tool in steam.proton_tools():
-            self.proton.addItem(tool.display_name, tool.name)
-        if self.game.proton:
-            self.proton.setCurrentIndex(max(self.proton.findData(self.game.proton), 0))
+        self._fill_protons()
         self._refresh()
+
+    def _fill_protons(self) -> None:
+        steam = self.gw.steam
+        if steam is None:
+            return
+        tools = steam.proton_tools()
+        if [self.proton.itemData(i) for i in range(self.proton.count())] != [t.name for t in tools]:
+            self.proton.clear()
+            for tool in tools:
+                self.proton.addItem(tool.display_name, tool.name)
+            if self.game.proton:
+                self.proton.setCurrentIndex(max(self.proton.findData(self.game.proton), 0))
+        found = bool(tools)
+        self.no_proton.setVisible(not found)
+        self.proton.setVisible(found)
+        self.button.setEnabled(found)
+        if found:
+            self.proton_poll.stop()
+        elif not self.proton_poll.isActive():
+            self.proton_poll.start()
+
+    def _install_proton(self) -> None:
+        try:
+            run_with_progress(
+                self, self.tr("Opening Steam…"), lambda _r: install_proton(), cancellable=False
+            )
+        except SteamError as exc:
+            show_error(self, exc)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        self.proton_poll.stop()
+        super().hideEvent(event)
 
     def _target(self) -> Path:
         if self.game.installer:

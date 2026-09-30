@@ -84,3 +84,10 @@ def test_launch_reports_failure(fake_bin: Path, tmp_path: Path) -> None:
     message = str(exc.value)
     assert "xdg-open exited with 3: xdg-open failed on purpose" in message
     assert "steam exited with 1: steam failed on purpose" in message
+
+
+def test_install_proton_opens_steam_install_dialog(fake_bin: Path, tmp_path: Path) -> None:
+    log = tmp_path / "calls.log"
+    fake_command(fake_bin, "xdg-open", 0, log)
+    steam_mod.install_proton()
+    assert log.read_text().split()[:2] == ["xdg-open", "steam://install/2805730"]

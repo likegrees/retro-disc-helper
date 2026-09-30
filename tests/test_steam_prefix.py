@@ -84,7 +84,9 @@ def test_refuses_when_steam_running(fake_steam: Steam, monkeypatch: pytest.Monke
 
 def test_proton_tools(fake_steam: Steam) -> None:
     tools = fake_steam.proton_tools()
-    assert tools[0].name == "proton_8"  # newest *stable* first
+    # Valve names the regular Proton 9 folder "Proton 9.0 (Beta)": it still wins over 8.0,
+    # and Experimental comes last.
+    assert [t.name for t in tools] == ["proton_9", "proton_8", "proton_experimental"]
     assert {t.name for t in tools} == {"proton_8", "proton_9", "proton_experimental"}
 
 
