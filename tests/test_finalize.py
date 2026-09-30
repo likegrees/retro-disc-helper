@@ -12,7 +12,6 @@ import vdf
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from retrodisc.core import steam as steam_mod
@@ -139,10 +138,12 @@ def test_finalize_page_lists_installed_exe_and_updates_steam(
     page = wizard.currentPage()
     assert isinstance(page, FinalizePage)
 
-    listed = [page.exes.item(i).data(Qt.ItemDataRole.UserRole) for i in range(page.exes.count())]
+    listed = [page.exes.itemData(i) for i in range(page.exes.count())]
     assert listed[0] == str(game_exe)  # the game first, the uninstaller after it
     assert str(drive_c / "windows/system32/notepad.exe") not in listed
     assert page.found_hint.isHidden()
+    assert page.exe_path.text() == str(game_exe)  # full path under the drop-down
+    assert "C:\\Program Files\\Sub Culture" in page.exes.itemText(0)
 
     page._apply()
     assert steam.shortcuts()[0].exe == game_exe

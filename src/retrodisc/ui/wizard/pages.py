@@ -9,14 +9,12 @@ from typing import TYPE_CHECKING, cast
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
-    QListWidgetItem,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -31,6 +29,7 @@ from retrodisc.core.library import Game
 from retrodisc.core.steam import Shortcut, Steam
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
 from retrodisc.ui.disc_switcher import DiscSwitcher
+from retrodisc.ui.widgets import SafeComboBox
 from retrodisc.ui.windows_version import WindowsVersionBox
 from retrodisc.ui.workers import Reporter, run_with_progress
 
@@ -354,7 +353,7 @@ class ExtractPage(BasePage):
         self.where = _label(kind="hint")
         self.path_edit.textChanged.connect(self._update_where)
 
-        self.installer = QComboBox()
+        self.installer = SafeComboBox()
         self.installer.currentIndexChanged.connect(self._installer_changed)
         self.warnings = _label(kind="warn")
         self.cd_check = QCheckBox(self.tr("The game checks for its CD (set up drive S: later)"))
@@ -527,7 +526,7 @@ class SteamPage(BasePage):
             self.tr("The game is added as a non-Steam game, forced to run with Proton.")
         )
         self.steam_info = _label()
-        self.proton = QComboBox()
+        self.proton = SafeComboBox()
         self.button = QPushButton(self.tr("Add to Steam"))
         self.button.clicked.connect(self._add)
         self.status = _label(kind="ok")
@@ -744,8 +743,10 @@ class FinalizePage(BasePage):
         super().__init__()
         self.setTitle(self.tr("Set up the game"))
         self.setSubTitle(self.tr("Choose the game's executable to replace the installer in Steam."))
-        self.exes = QListWidget()
-        self.exes.currentItemChanged.connect(self.completeChanged)
+        self.exes = SafeComboBox()
+        self.exes.setObjectName("big")
+        self.exes.currentIndexChanged.connect(self._exe_changed)
+        self.exe_path = _label(kind="hint")
         browse = QPushButton(self.tr("Browse…"))
         browse.clicked.connect(self._browse)
         self.name_edit = QLineEdit()
@@ -776,14 +777,17 @@ class FinalizePage(BasePage):
             ),
             kind="warn",
         )
-        layout.addLayout(_row(QLabel(self.tr("Game executable")), browse))
+        layout.addWidget(QLabel(self.tr("Game executable")))
+        layout.addLayout(_row(self.exes, browse))
+        layout.addWidget(self.exe_path)
         layout.addWidget(self.found_hint)
-        layout.addWidget(self.exes, 1)
+        layout.addSpacing(8)
         layout.addWidget(QLabel(self.tr("Name in Steam")))
         layout.addWidget(self.name_edit)
         layout.addWidget(self.cd_box)
         self.winver = WindowsVersionBox(self.gw_save)
         layout.addWidget(self.winver)
+        layout.addStretch()
         layout.addLayout(_row(self.status, self.apply, self.play))
 
     def initializePage(self) -> None:
@@ -799,7 +803,7 @@ class FinalizePage(BasePage):
         if self.game.cd_dir:
             cd_dir = Path(self.game.cd_dir)
             candidates += [
-                (p, self.tr("from the CD, runs from S:"))
+                (p, self.tr("on the CD"))
                 for p in exe_inspect.find_exes(cd_dir)
                 if not p.name.lower().startswith(("setup", "install", "autorun"))
             ]
@@ -808,23 +812,38 @@ class FinalizePage(BasePage):
         if self.game.exe:
             self._select(Path(self.game.exe))
         elif self.exes.count():
-            self.exes.setCurrentRow(0)
+            self.exes.setCurrentIndex(0)
+        self._exe_changed()
         self.winver.bind(self.gw.steam, self.game)
         self._refresh_cd()
         self._refresh()
 
-    def _add_exe(self, path: Path, origin: str) -> QListWidgetItem:
-        item = QListWidgetItem(f"{path.name}  ({origin})\n{path.parent}")
-        item.setData(Qt.ItemDataRole.UserRole, str(path))
-        self.exes.addItem(item)
-        return item
+    def _windows_path(self, path: Path) -> str:
+        """How the game sees the folder: C:\\... inside the prefix, S:\\... on the CD."""
+        roots: list[tuple[Path, str]] = []
+        if self.gw.steam is not None and self.game.appid is not None:
+            roots.append((self.gw.steam.prefix(self.game.appid) / "drive_c", "C:"))
+        roots += [(Path(d.cd_dir), "S:") for d in self.game.discs if d.cd_dir]
+        for root, letter in roots:
+            if path.parent.is_relative_to(root):
+                rest = path.parent.relative_to(root).parts
+                return letter + "\\" + "\\".join(rest)
+        return str(path.parent)
+
+    def _add_exe(self, path: Path, origin: str) -> int:
+        self.exes.addItem(f"{path.name}   ·   {origin}   ·   {self._windows_path(path)}", str(path))
+        return self.exes.count() - 1
 
     def _select(self, path: Path) -> None:
-        for i in range(self.exes.count()):
-            if self.exes.item(i).data(Qt.ItemDataRole.UserRole) == str(path):
-                self.exes.setCurrentRow(i)
-                return
-        self.exes.setCurrentItem(self._add_exe(path, self.tr("chosen")))
+        index = self.exes.findData(str(path))
+        if index < 0:
+            index = self._add_exe(path, self.tr("chosen"))
+        self.exes.setCurrentIndex(index)
+
+    def _exe_changed(self) -> None:
+        exe = self._selected_exe()
+        self.exe_path.setText(str(exe) if exe else "")
+        self.completeChanged.emit()
 
     def _browse(self) -> None:
         start = self.game.cd_dir or str(Path.home())
@@ -839,8 +858,8 @@ class FinalizePage(BasePage):
             self._select(Path(path))
 
     def _selected_exe(self) -> Path | None:
-        item = self.exes.currentItem()
-        return Path(item.data(Qt.ItemDataRole.UserRole)) if item else None
+        data = self.exes.currentData()
+        return Path(data) if data else None
 
     def _apply(self) -> None:
         steam, exe = self.gw.steam, self._selected_exe()

@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QCoreApplication
-from PySide6.QtWidgets import QComboBox, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from retrodisc.core import prefix
 from retrodisc.core.library import Game
 from retrodisc.core.steam import Steam
 from retrodisc.ui.common import show_error
+from retrodisc.ui.widgets import SafeComboBox
 from retrodisc.ui.workers import run_with_progress
 
 
@@ -48,7 +49,7 @@ class WindowsVersionBox(QWidget):
         self.on_change = on_change
         self.steam: Steam | None = None
         self.game: Game | None = None
-        self.combo = QComboBox()
+        self.combo = SafeComboBox()
         self.combo.addItem(_tr("Default (Windows 10)"), None)
         for name, label in prefix.WINDOWS_VERSIONS.items():
             if name != "win10":

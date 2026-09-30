@@ -6,12 +6,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from retrodisc.core import iso, prefix
 from retrodisc.core.library import Game
 from retrodisc.core.steam import Steam
 from retrodisc.ui.common import show_error
+from retrodisc.ui.widgets import SafeComboBox
 
 
 def _tr(text: str) -> str:
@@ -45,7 +46,7 @@ class DiscSwitcher(QWidget):
         self.on_change = on_change
         self.steam: Steam | None = None
         self.game: Game | None = None
-        self.combo = QComboBox()
+        self.combo = SafeComboBox()
         self.combo.activated.connect(self._activated)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

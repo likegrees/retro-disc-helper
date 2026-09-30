@@ -22,6 +22,8 @@ STYLESHEET = """
 * { font-size: 15pt; }
 QPushButton { min-height: 48px; padding: 6px 18px; }
 QComboBox, QLineEdit { min-height: 44px; }
+QComboBox#big { min-height: 60px; font-size: 16pt; }
+QComboBox QAbstractItemView::item { min-height: 48px; padding: 4px 8px; }
 QCheckBox::indicator { width: 28px; height: 28px; }
 QListWidget::item { min-height: 64px; padding: 6px; }
 QLabel#hint { color: palette(placeholder-text); }
