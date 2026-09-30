@@ -28,8 +28,8 @@ from PySide6.QtWidgets import (
 from retrodisc.core import convert, exe_inspect, iso, prefix, protection
 from retrodisc.core.cue import CueError, CueSheet, parse_cue
 from retrodisc.core.library import Game, safe_name
-from retrodisc.core.steam import Shortcut, Steam, launch
-from retrodisc.ui.common import show_error, with_steam_closed
+from retrodisc.core.steam import Shortcut, Steam
+from retrodisc.ui.common import show_error, start_game, with_steam_closed
 from retrodisc.ui.workers import Reporter, run_with_progress
 
 if TYPE_CHECKING:
@@ -444,12 +444,14 @@ class InstallPage(BasePage):
         self.help = _label()
         self.button = QPushButton(self.tr("Run the installer from Steam"))
         self.button.clicked.connect(self._run)
+        self.status = _label(kind="ok")
         self.done = QCheckBox(self.tr("The installation finished"))
         self.done.toggled.connect(self._done_toggled)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.help)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.status)
         layout.addWidget(self.done)
         layout.addStretch()
 
@@ -478,11 +480,13 @@ class InstallPage(BasePage):
         assert self.game.appid is not None
         self.game.install_started = self.game.install_started or time.time()
         self.gw.save()
-        steam = self.gw.steam
-        if steam is not None:
-            shortcut = next((s for s in steam.shortcuts() if s.appid == self.game.appid), None)
-            if shortcut is not None:
-                launch(shortcut)
+        if start_game(self, self.gw.steam, self.game.appid):
+            self.status.setText(
+                self.tr(
+                    "Steam is starting the installer. If Steam was closed it can take a "
+                    "minute to open; the installer window appears after that."
+                )
+            )
 
     def _done_toggled(self, checked: bool) -> None:
         self.game.installed = checked
@@ -616,12 +620,7 @@ class FinalizePage(BasePage):
         self._refresh()
 
     def _play(self) -> None:
-        steam = self.gw.steam
-        if steam is None or self.game.appid is None:
-            return
-        shortcut = next((s for s in steam.shortcuts() if s.appid == self.game.appid), None)
-        if shortcut is not None:
-            launch(shortcut)
+        start_game(self, self.gw.steam, self.game.appid)
 
     def _setup_cd(self) -> None:
         steam = self.gw.steam

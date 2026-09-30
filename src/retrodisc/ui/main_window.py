@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
 from retrodisc.core import cleanup
 from retrodisc.core.cleanup import Item
 from retrodisc.core.library import Game, Library, Step, pretty_name
-from retrodisc.core.steam import Steam, SteamError, launch
-from retrodisc.ui.common import show_error, with_steam_closed
+from retrodisc.core.steam import Steam, SteamError
+from retrodisc.ui.common import show_error, start_game, with_steam_closed
 from retrodisc.ui.remove_dialog import RemoveDialog
 from retrodisc.ui.troubleshoot import TroubleshootDialog
 from retrodisc.ui.wizard.game_wizard import GameWizard
@@ -152,11 +152,8 @@ class MainWindow(QMainWindow):
 
     def play(self) -> None:
         game = self.current()
-        if game is None or game.appid is None or self.steam is None:
-            return
-        shortcut = next((s for s in self.steam.shortcuts() if s.appid == game.appid), None)
-        if shortcut is not None:
-            launch(shortcut)
+        if game is not None:
+            start_game(self, self.steam, game.appid)
 
     def remove(self) -> None:
         game = self.current()

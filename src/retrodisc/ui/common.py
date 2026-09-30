@@ -7,7 +7,14 @@ from collections.abc import Callable
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-from retrodisc.core.steam import SteamRunningError, is_steam_running, shutdown_steam
+from retrodisc.core.steam import (
+    Steam,
+    SteamError,
+    SteamRunningError,
+    is_steam_running,
+    launch,
+    shutdown_steam,
+)
 from retrodisc.ui.workers import run_with_progress
 
 # Big touch targets for the Legion Go screen.
@@ -65,3 +72,31 @@ def with_steam_closed[T](parent: QWidget | None, action: Callable[[], T]) -> T |
         if not ensure_steam_closed(parent):
             return None
         return action()
+
+
+def start_game(parent: QWidget | None, steam: Steam | None, appid: int | None) -> bool:
+    """Ask Steam to run the game's shortcut; show an error instead of failing silently."""
+    if steam is None or appid is None:
+        show_error(parent, _tr("Steam was not found."))
+        return False
+    shortcut = next((s for s in steam.shortcuts() if s.appid == appid), None)
+    if shortcut is None:
+        show_error(
+            parent,
+            _tr(
+                "The game's shortcut is not in Steam anymore. Add it again in the "
+                '"Add to Steam" step.'
+            ),
+        )
+        return False
+    try:
+        run_with_progress(
+            parent,
+            _tr("Asking Steam to start the game…"),
+            lambda _r: launch(shortcut),
+            cancellable=False,
+        )
+    except SteamError as exc:
+        show_error(parent, exc)
+        return False
+    return True

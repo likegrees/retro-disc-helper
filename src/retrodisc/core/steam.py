@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import zlib
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from typing import Any
 
 import vdf
 
+from retrodisc.core.hostenv import host_env
+
 STEAM_ROOT_CANDIDATES = (
     Path("~/.local/share/Steam"),
     Path("~/.steam/steam"),
@@ -20,6 +23,7 @@ STEAM_ROOT_CANDIDATES = (
 )
 STEAMID64_BASE = 76561197960265728
 COMPAT_PRIORITY = "250"
+LAUNCH_CHECK_SECONDS = 5.0
 
 
 class SteamError(Exception):
@@ -87,7 +91,9 @@ def backup(path: Path) -> Path | None:
 
 def is_steam_running() -> bool:
     try:
-        result = subprocess.run(["pgrep", "-x", "steam"], capture_output=True, check=False)
+        result = subprocess.run(
+            ["pgrep", "-x", "steam"], capture_output=True, check=False, env=host_env()
+        )
     except FileNotFoundError:
         return False
     return result.returncode == 0
@@ -97,7 +103,7 @@ def shutdown_steam(timeout: float = 60.0) -> bool:
     """Ask Steam to quit and wait for it. Returns True once it is gone."""
     if not is_steam_running():
         return True
-    subprocess.run(["steam", "-shutdown"], capture_output=True, check=False)
+    subprocess.run(["steam", "-shutdown"], capture_output=True, check=False, env=host_env())
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not is_steam_running():
@@ -107,12 +113,33 @@ def shutdown_steam(timeout: float = 60.0) -> bool:
 
 
 def launch(shortcut: Shortcut) -> None:
-    subprocess.Popen(
-        ["xdg-open", f"steam://rungameid/{shortcut.game_id}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    """Ask Steam to run the shortcut (starting Steam if needed). Raises SteamError."""
+    url = f"steam://rungameid/{shortcut.game_id}"
+    errors: list[str] = []
+    for command in (["xdg-open", url], ["steam", url]):
+        # A file, not a pipe: Steam keeps writing to stderr and would block on a full pipe.
+        with tempfile.TemporaryFile() as log:
+            try:
+                proc = subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=log,
+                    env=host_env(),
+                    start_new_session=True,
+                )
+            except FileNotFoundError:
+                errors.append(f"{command[0]}: not found")
+                continue
+            try:
+                code = proc.wait(timeout=LAUNCH_CHECK_SECONDS)
+            except subprocess.TimeoutExpired:
+                return  # still running (e.g. Steam starting up): the request was handed over
+            if code == 0:
+                return
+            log.seek(0)
+            stderr = log.read().decode(errors="replace").strip()[-300:]
+            errors.append(f"{command[0]} exited with {code}" + (f": {stderr}" if stderr else ""))
+    raise SteamError("Could not ask Steam to start the game.\n" + "\n".join(errors))
 
 
 class Steam:
