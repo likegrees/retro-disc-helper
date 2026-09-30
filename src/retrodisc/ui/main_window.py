@@ -18,10 +18,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from retrodisc.core import cleanup
+from retrodisc.core.cleanup import Item
 from retrodisc.core.library import Game, Library, Step, pretty_name
 from retrodisc.core.steam import Steam, SteamError, launch
+from retrodisc.ui.common import show_error, with_steam_closed
+from retrodisc.ui.remove_dialog import RemoveDialog
 from retrodisc.ui.troubleshoot import TroubleshootDialog
 from retrodisc.ui.wizard.game_wizard import GameWizard
+from retrodisc.ui.workers import run_with_progress
 
 
 class MainWindow(QMainWindow):
@@ -157,13 +162,42 @@ class MainWindow(QMainWindow):
         game = self.current()
         if game is None:
             return
-        answer = QMessageBox.question(
-            self,
-            self.tr("Remove game"),
-            self.tr(
-                "Remove {name} from this list?\n\nFiles and the Steam shortcut are not deleted."
-            ).format(name=game.name),
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.library.remove(game.id)
-            self.reload()
+        others = [g for g in self.library.games if g.id != game.id]
+        try:
+            targets = run_with_progress(
+                self,
+                self.tr("Checking files…"),
+                lambda _r: cleanup.plan(game, self.steam, others),
+                cancellable=False,
+            )
+        except Exception as exc:
+            show_error(self, exc)
+            return
+        dialog = RemoveDialog(game, targets, self)
+        if dialog.exec() != RemoveDialog.DialogCode.Accepted:
+            return
+        items = dialog.selected()
+
+        def delete() -> list[str]:
+            return run_with_progress(
+                self,
+                self.tr("Deleting…"),
+                lambda _r: cleanup.perform(game, self.steam, items, others),
+                cancellable=False,
+            )
+
+        try:
+            errors = with_steam_closed(self, delete) if Item.SHORTCUT in items else delete()
+        except Exception as exc:
+            show_error(self, exc)
+            return
+        if errors is None:  # the user chose not to close Steam
+            return
+        self.library.remove(game.id)
+        self.reload()
+        if errors:
+            QMessageBox.warning(
+                self,
+                self.tr("Some items were not deleted"),
+                "\n\n".join(errors),
+            )

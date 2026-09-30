@@ -294,6 +294,18 @@ class Steam:
             return next(s for s in self.shortcuts() if s.appid == appid)
         raise SteamError(f"No shortcut with appid {appid}")
 
+    def remove_shortcut(self, appid: int) -> bool:
+        """Delete the shortcut with `appid`. Returns False if it was already gone."""
+        data = self._load_shortcuts()
+        entries = list(data["shortcuts"].values())
+        kept = [e for e in entries if to_unsigned(int(e.get("appid", 0))) != appid]
+        if len(kept) == len(entries):
+            return False
+        # Steam expects consecutive keys "0", "1", ...
+        data["shortcuts"] = {str(i): e for i, e in enumerate(kept)}
+        self._save_shortcuts(data)
+        return True
+
     # ---- config.vdf --------------------------------------------------------------------
 
     def _load_config(self) -> dict[str, Any]:
@@ -334,6 +346,20 @@ class Steam:
         mapping[key] = {"name": tool_name, "config": "", "priority": COMPAT_PRIORITY}
         backup(self.config_path)
         self.config_path.write_text(vdf.dumps(data, pretty=True))
+
+    def remove_compat_tool(self, appid: int) -> bool:
+        """Drop the forced Proton version of `appid`. Returns False if none was set."""
+        if not self.config_path.exists():
+            return False
+        data = self._load_config()
+        mapping = self._steam_section(data).get("CompatToolMapping")
+        if mapping is None or str(appid) not in mapping:
+            return False
+        self._ensure_closed()
+        del mapping[str(appid)]
+        backup(self.config_path)
+        self.config_path.write_text(vdf.dumps(data, pretty=True))
+        return True
 
 
 def _official_tool_name(directory: str) -> str:
