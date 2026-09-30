@@ -15,6 +15,11 @@ It automates the manual Proton workflow for running disc-image games on SteamOS:
    original disc's label and serial, and writes `s:=cdrom` into the prefix's `system.reg`
    (Protontricks is not needed).
 
+**Windows version**: per game, choose which Windows Proton reports (default Windows 10, or
+7, XP, 2000, 98), for old games and installers that refuse newer versions. It is set in the
+game's own prefix (`HKCU\Software\Wine` → `Version`, like `winecfg`), so it covers the
+installer too and no other game is affected.
+
 **Multi-disc games**: pick any disc's `.cue` (or an `.m3u` playlist) and the other discs are
 found automatically (Redump `(Disc N)` / `CDn` names). Each disc is converted and extracted into
 its own folder (`cd1`, `cd2`, …). Before installing, the app prepares the Proton prefix and puts

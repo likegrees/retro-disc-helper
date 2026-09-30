@@ -68,6 +68,7 @@ class Game:
     notes: list[str] = field(default_factory=list)
     more_discs: list[Disc] = field(default_factory=list)  # disc 2, 3, ...
     current_disc: int = 0  # index of the disc drive S: shows
+    windows_version: str | None = None  # Wine name ("winxp", ...); None = Proton default
 
     @property
     def discs(self) -> list[Disc]:

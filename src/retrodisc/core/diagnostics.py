@@ -157,6 +157,9 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
     if game.cd_drive or game.run_from_cd or game.multi_disc:
         results.append(_cd_drive_check(game, steam))
 
+    if game.windows_version is not None:
+        results.append(_windows_version_check(game, steam))
+
     if is_steam_running():
         add(
             CheckResult(
@@ -283,3 +286,32 @@ def _cd_drive_check(game: Game, steam: Steam) -> CheckResult:
 
         fix = _fix
     return CheckResult(title, Status.FAIL, "; ".join(problems), fix, tr("Repair drive S:"))
+
+
+def _windows_version_check(game: Game, steam: Steam) -> CheckResult:
+    assert game.appid is not None and game.windows_version is not None
+    wanted = game.windows_version
+    label = prefix.WINDOWS_VERSIONS.get(wanted, wanted)
+    title = tr("Windows version")
+    pfx = steam.prefix(game.appid)
+    if not (pfx / "user.reg").exists():
+        return CheckResult(
+            title, Status.FAIL, tr("Launch the game once from Steam so Proton creates its prefix.")
+        )
+    current = prefix.windows_version(pfx)
+    if current == wanted:
+        return CheckResult(title, Status.OK, tr("The game sees {version}.").format(version=label))
+
+    def _fix() -> None:
+        prefix.set_windows_version(pfx, wanted)
+
+    return CheckResult(
+        title,
+        Status.FAIL,
+        tr("Set to {version}, but the prefix reports {current}.").format(
+            version=label,
+            current=prefix.WINDOWS_VERSIONS.get(current or "", current or "Windows 10"),
+        ),
+        _fix,
+        tr("Set {version} again").format(version=label),
+    )

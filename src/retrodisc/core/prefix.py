@@ -106,7 +106,40 @@ def insert_disc(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
     tmp.replace(link)  # atomic: S: is never missing while a game polls it
 
 
-# ---- system.reg (HKEY_LOCAL_MACHINE) editing ------------------------------------------
+# ---- Windows version reported to programs ---------------------------------------------
+
+WINE_KEY = r"Software\\Wine"
+# Wine's names, newest first. None = Proton's default (Windows 10).
+WINDOWS_VERSIONS: dict[str, str] = {
+    "win10": "Windows 10",
+    "win7": "Windows 7",
+    "winxp": "Windows XP",
+    "win2k": "Windows 2000",
+    "win98": "Windows 98",
+}
+
+
+def windows_version(pfx: Path) -> str | None:
+    """The version set for the whole prefix, or None when Proton's default applies."""
+    return read_reg_value(pfx / "user.reg", WINE_KEY, "Version")
+
+
+def set_windows_version(pfx: Path, version: str | None) -> None:
+    """Make every program in the prefix see `version` (None: back to Proton's default).
+
+    The game must not be running (Wine rewrites user.reg on exit).
+    """
+    if version is not None and version not in WINDOWS_VERSIONS:
+        raise PrefixError(f"Unknown Windows version: {version}")
+    reg = pfx / "user.reg"
+    if not reg.exists():
+        raise PrefixError(
+            "The Wine prefix does not exist yet. Launch the game once from Steam, then close it."
+        )
+    write_reg_value(reg, WINE_KEY, "Version", version)
+
+
+# ---- registry file editing (system.reg = HKLM, user.reg = HKCU) --------------------------
 
 
 def _section_bounds(lines: list[str], key: str) -> tuple[int, int] | None:
@@ -120,37 +153,50 @@ def _section_bounds(lines: list[str], key: str) -> tuple[int, int] | None:
     return None
 
 
-def registry_drive_type(pfx: Path, letter: str = CD_LETTER) -> str | None:
+def _value_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(rf'^"{re.escape(name)}"=', re.IGNORECASE)
+
+
+def read_reg_value(reg: Path, key: str, name: str) -> str | None:
     try:
-        lines = (pfx / "system.reg").read_text(errors="replace").splitlines()
+        lines = reg.read_text(errors="replace").splitlines()
     except OSError:
         return None
-    bounds = _section_bounds(lines, DRIVES_KEY)
+    bounds = _section_bounds(lines, key)
     if bounds is None:
         return None
-    pattern = re.compile(rf'^"{letter}:"="([^"]*)"', re.IGNORECASE)
+    pattern = re.compile(rf'^"{re.escape(name)}"="([^"]*)"', re.IGNORECASE)
     for line in lines[bounds[0] + 1 : bounds[1]]:
         if m := pattern.match(line):
             return m.group(1)
     return None
 
 
-def set_registry_drive_type(pfx: Path, drive_type: str, letter: str = CD_LETTER) -> None:
-    reg = pfx / "system.reg"
-    text = reg.read_text(errors="replace")
-    lines = text.splitlines()
-    value = f'"{letter}:"="{drive_type}"'
-    pattern = re.compile(rf'^"{letter}:"=', re.IGNORECASE)
-    bounds = _section_bounds(lines, DRIVES_KEY)
+def write_reg_value(reg: Path, key: str, name: str, value: str | None) -> None:
+    """Set a string value (or delete it when `value` is None) in a Wine registry file."""
+    lines = reg.read_text(errors="replace").splitlines()
+    entry = [f'"{name}"="{value}"'] if value is not None else []
+    bounds = _section_bounds(lines, key)
     if bounds is None:
+        if not entry:
+            return
         if lines and lines[-1].strip():
             lines.append("")
-        lines += [f"[{DRIVES_KEY}] {int(time.time())}", value, ""]
+        lines += [f"[{key}] {int(time.time())}", *entry, ""]
     else:
         start, end = bounds
+        pattern = _value_pattern(name)
         body = [line for line in lines[start + 1 : end] if not pattern.match(line)]
         # Keep the trailing blank line that separates sections.
         while body and not body[-1].strip():
             body.pop()
-        lines[start + 1 : end] = [*body, value, ""]
+        lines[start + 1 : end] = [*body, *entry, ""]
     reg.write_text("\n".join(lines) + "\n")
+
+
+def registry_drive_type(pfx: Path, letter: str = CD_LETTER) -> str | None:
+    return read_reg_value(pfx / "system.reg", DRIVES_KEY, f"{letter}:")
+
+
+def set_registry_drive_type(pfx: Path, drive_type: str, letter: str = CD_LETTER) -> None:
+    write_reg_value(pfx / "system.reg", DRIVES_KEY, f"{letter}:", drive_type)

@@ -31,6 +31,7 @@ from retrodisc.core.library import Game
 from retrodisc.core.steam import Shortcut, Steam
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
 from retrodisc.ui.disc_switcher import DiscSwitcher
+from retrodisc.ui.windows_version import WindowsVersionBox
 from retrodisc.ui.workers import Reporter, run_with_progress
 
 if TYPE_CHECKING:
@@ -490,6 +491,8 @@ class SteamPage(BasePage):
         layout.addWidget(self.proton)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.status)
+        self.winver = WindowsVersionBox(self.gw_save)
+        layout.addWidget(self.winver)
         layout.addStretch()
 
     def initializePage(self) -> None:
@@ -543,7 +546,12 @@ class SteamPage(BasePage):
         self.save()
         self._refresh()
 
+    def gw_save(self) -> None:
+        self.gw.save()
+
     def _refresh(self) -> None:
+        self.winver.setVisible(self.game.appid is not None)
+        self.winver.bind(self.gw.steam, self.game)
         if self.game.appid is not None:
             self.status.setText(
                 self.tr("Added to Steam (id {appid}) with {proton}.").format(
@@ -719,6 +727,8 @@ class FinalizePage(BasePage):
         layout.addWidget(QLabel(self.tr("Name in Steam")))
         layout.addWidget(self.name_edit)
         layout.addWidget(self.cd_box)
+        self.winver = WindowsVersionBox(self.gw_save)
+        layout.addWidget(self.winver)
         layout.addLayout(_row(self.status, self.apply, self.play))
 
     def initializePage(self) -> None:
@@ -741,6 +751,7 @@ class FinalizePage(BasePage):
             self._select(Path(self.game.exe))
         elif self.exes.count():
             self.exes.setCurrentRow(0)
+        self.winver.bind(self.gw.steam, self.game)
         self._refresh_cd()
         self._refresh()
 
@@ -853,6 +864,9 @@ class FinalizePage(BasePage):
     def _disc_changed(self) -> None:
         self.gw.save()
         self._refresh_cd()
+
+    def gw_save(self) -> None:
+        self.gw.save()
 
     def _refresh(self) -> None:
         self.play.setEnabled(self.game.appid is not None)
