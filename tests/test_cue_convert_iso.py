@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from pathlib import Path
 
+import pycdlib
 import pytest
 
 from retrodisc.core.convert import ConversionCancelled, convert_to_iso, is_valid_iso
 from retrodisc.core.cue import CueError, msf_to_frames, parse_cue
-from retrodisc.core.iso import extract, list_files, volume_info
+from retrodisc.core.iso import _clean, extract, list_files, volume_info
 
 from .conftest import wrap_raw
 
@@ -109,3 +111,38 @@ def test_extract_uses_joliet_names(tmp_path: Path, iso_file: Path) -> None:
     dest = extract(iso_file, tmp_path / "cd")
     assert (dest / "Setup.exe").read_bytes().startswith(b"MZ")
     assert (dest / "Data" / "ReadMe.txt").read_text().startswith("hello world")
+
+
+def test_extract_strips_version_from_joliet_names(tmp_path: Path) -> None:
+    # Many 90s mastering tools stored the ";1" version in the Joliet names too.
+    iso_path = tmp_path / "j.iso"
+    cd = pycdlib.PyCdlib()
+    cd.new(interchange_level=3, joliet=3)
+    cd.add_fp(io.BytesIO(b"MZ"), 2, "/SETUP.EXE;1", joliet_path="/Setup.exe;1")
+    cd.add_directory("/DATA", joliet_path="/Data")
+    cd.add_fp(io.BytesIO(b"x"), 1, "/DATA/README.;1", joliet_path="/Data/ReadMe.;1")
+    cd.write(str(iso_path))
+    cd.close()
+
+    assert sorted(list_files(iso_path)) == ["/Data/ReadMe", "/Setup.exe"]
+    dest = extract(iso_path, tmp_path / "cd")
+    assert sorted(str(p.relative_to(dest)) for p in dest.rglob("*")) == [
+        "Data",
+        "Data/ReadMe",
+        "Setup.exe",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "facade", "expected"),
+    [
+        ("SETUP.EXE;1", "iso_path", "SETUP.EXE"),
+        ("README.;1", "iso_path", "README"),
+        ("Setup.exe;1", "joliet_path", "Setup.exe"),
+        ("Setup.exe", "joliet_path", "Setup.exe"),
+        ("Game v1.0", "joliet_path", "Game v1.0"),
+        ("Save;Game.dat", "rr_path", "Save;Game.dat"),
+    ],
+)
+def test_clean_names(name: str, facade: str, expected: str) -> None:
+    assert _clean(name, facade) == expected

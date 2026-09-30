@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -62,12 +63,19 @@ def _open(iso: Path) -> tuple[pycdlib.PyCdlib, str]:
     return cd, "iso_path"
 
 
+_VERSION_SUFFIX = re.compile(r";\d+$")
+
+
 def _clean(name: str, facade: str) -> str:
-    if facade == "iso_path":
-        name = name.split(";", 1)[0]
-        if name.endswith("."):
-            name = name[:-1]
-    return name
+    """Drop the ";1" file version, which ISO9660 always has and many Joliet discs keep too.
+
+    Also drops the dot of an empty extension ("README.;1" -> "README"): Windows cannot
+    create names ending with a dot anyway.
+    """
+    stripped = _VERSION_SUFFIX.sub("", name)
+    if stripped != name or facade == "iso_path":
+        stripped = stripped.removesuffix(".")
+    return stripped or name
 
 
 def _walk(cd: pycdlib.PyCdlib, facade: str) -> list[tuple[str, list[str], list[str]]]:
