@@ -73,6 +73,22 @@ def to_unsigned(value: int) -> int:
     return value & 0xFFFFFFFF
 
 
+def _get(entry: dict[str, Any], key: str, default: Any = None) -> Any:
+    """Read a shortcuts.vdf field whatever its case ("Exe", "exe", ...), as Steam does."""
+    lowered = key.lower()
+    return next((v for k, v in entry.items() if k.lower() == lowered), default)
+
+
+def _set(entry: dict[str, Any], key: str, value: Any) -> None:
+    """Write a field, replacing every case variant so Steam cannot read a stale copy."""
+    lowered = key.lower()
+    existing = [k for k in entry if k.lower() == lowered]
+    target = existing[0] if existing else key
+    for k in existing[1:]:
+        del entry[k]
+    entry[target] = value
+
+
 def _quote(path: Path) -> str:
     return f'"{path}"'
 
@@ -314,11 +330,11 @@ class Steam:
     def shortcuts(self) -> list[Shortcut]:
         return [
             Shortcut(
-                appid=to_unsigned(int(e.get("appid", 0))),
-                name=str(e.get("AppName", e.get("appname", ""))),
-                exe=Path(_unquote(str(e.get("Exe", e.get("exe", ""))))),
-                start_dir=Path(_unquote(str(e.get("StartDir", "")))),
-                launch_options=str(e.get("LaunchOptions", "")),
+                appid=to_unsigned(int(_get(e, "appid", 0))),
+                name=str(_get(e, "AppName", "")),
+                exe=Path(_unquote(str(_get(e, "Exe", "")))),
+                start_dir=Path(_unquote(str(_get(e, "StartDir", "")))),
+                launch_options=str(_get(e, "LaunchOptions", "")),
             )
             for e in self._load_shortcuts()["shortcuts"].values()
         ]
@@ -361,25 +377,30 @@ class Steam:
         """Retarget an existing shortcut. The appid is kept so the Proton prefix survives."""
         data = self._load_shortcuts()
         for entry in data["shortcuts"].values():
-            if to_unsigned(int(entry.get("appid", 0))) != appid:
+            if to_unsigned(int(_get(entry, "appid", 0))) != appid:
                 continue
             if name is not None:
-                entry["AppName"] = name
+                _set(entry, "AppName", name)
             if exe is not None:
-                entry["Exe"] = _quote(exe)
+                _set(entry, "Exe", _quote(exe))
                 if start_dir is None:
                     start_dir = exe.parent
             if start_dir is not None:
-                entry["StartDir"] = _quote(start_dir)
+                _set(entry, "StartDir", _quote(start_dir))
             self._save_shortcuts(data)
-            return next(s for s in self.shortcuts() if s.appid == appid)
+            updated = next(s for s in self.shortcuts() if s.appid == appid)
+            if (exe is not None and updated.exe != exe) or (
+                name is not None and updated.name != name
+            ):
+                raise SteamError("The Steam shortcut could not be updated")
+            return updated
         raise SteamError(f"No shortcut with appid {appid}")
 
     def remove_shortcut(self, appid: int) -> bool:
         """Delete the shortcut with `appid`. Returns False if it was already gone."""
         data = self._load_shortcuts()
         entries = list(data["shortcuts"].values())
-        kept = [e for e in entries if to_unsigned(int(e.get("appid", 0))) != appid]
+        kept = [e for e in entries if to_unsigned(int(_get(e, "appid", 0))) != appid]
         if len(kept) == len(entries):
             return False
         # Steam expects consecutive keys "0", "1", ...

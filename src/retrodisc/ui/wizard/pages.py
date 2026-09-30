@@ -732,11 +732,11 @@ def _installed_exes(steam: Steam, game: Game) -> list[Path]:
     if not drive_c.is_dir():
         return []
     skip = {"windows", "programdata", "users"}
-    return [
-        p
-        for p in exe_inspect.find_exes(drive_c, newer_than=game.install_started)
-        if p.relative_to(drive_c).parts[0].lower() not in skip
-    ]
+    found: list[Path] = []
+    for top in drive_c.iterdir():  # don't walk C:\windows: thousands of files
+        if top.is_dir() and top.name.lower() not in skip:
+            found += exe_inspect.find_exes(top, newer_than=game.install_started)
+    return exe_inspect.rank_exes(found)
 
 
 class FinalizePage(BasePage):
@@ -769,7 +769,15 @@ class FinalizePage(BasePage):
         self.status = _label(kind="ok")
 
         layout = QVBoxLayout(self)
+        self.found_hint = _label(
+            self.tr(
+                "No program installed by the installer was found in the game's Proton "
+                "folder. Use Browse… to pick the game's .exe."
+            ),
+            kind="warn",
+        )
         layout.addLayout(_row(QLabel(self.tr("Game executable")), browse))
+        layout.addWidget(self.found_hint)
         layout.addWidget(self.exes, 1)
         layout.addWidget(QLabel(self.tr("Name in Steam")))
         layout.addWidget(self.name_edit)
@@ -783,8 +791,11 @@ class FinalizePage(BasePage):
         self.exes.clear()
         steam = self.gw.steam
         candidates: list[tuple[Path, str]] = []
+        installed: list[Path] = []
         if steam is not None and not self.game.run_from_cd:
-            candidates += [(p, self.tr("installed")) for p in _installed_exes(steam, self.game)]
+            installed = _installed_exes(steam, self.game)
+            candidates += [(p, self.tr("installed")) for p in installed]
+        self.found_hint.setVisible(not installed and not self.game.run_from_cd)
         if self.game.cd_dir:
             cd_dir = Path(self.game.cd_dir)
             candidates += [
@@ -919,7 +930,10 @@ class FinalizePage(BasePage):
         self.play.setEnabled(self.game.appid is not None)
         if self.game.exe:
             self.status.setText(
-                self.tr("Steam now launches {exe}.").format(exe=Path(self.game.exe).name)
+                self.tr(
+                    "Steam now launches {exe}. Steam was closed for the update: press Play "
+                    "to open it again."
+                ).format(exe=Path(self.game.exe).name)
             )
 
     def isComplete(self) -> bool:

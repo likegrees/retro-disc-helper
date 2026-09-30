@@ -57,6 +57,16 @@ def find_installers(cd_root: Path) -> list[Path]:
     return found
 
 
+def created_at(path: Path) -> float:
+    """When the file appeared on this disk.
+
+    Installers usually keep the original file dates from the CD (mtime from the 1990s), but
+    they cannot set ctime, which changes when the file is created here.
+    """
+    st = path.stat()
+    return max(st.st_mtime, st.st_ctime)
+
+
 def find_exes(folder: Path, newer_than: float | None = None) -> list[Path]:
     """All .exe files below `folder`, largest first, optionally only recently created ones."""
     exes = [
@@ -64,15 +74,22 @@ def find_exes(folder: Path, newer_than: float | None = None) -> list[Path]:
         for p in folder.rglob("*")
         if p.suffix.lower() == ".exe"
         and p.is_file()
-        and (newer_than is None or p.stat().st_mtime >= newer_than)
+        and (newer_than is None or created_at(p) >= newer_than)
     ]
-    uninstall = ("unins", "uninst", "setup", "install", "vcredist", "dxsetup", "directx")
+    return rank_exes(exes)
+
+
+UNINSTALL_PREFIXES = ("unins", "uninst", "setup", "install", "vcredist", "dxsetup", "directx")
+
+
+def rank_exes(exes: list[Path]) -> list[Path]:
+    """Most likely game executable first: not an (un)installer, under Program Files, biggest."""
 
     def rank(p: Path) -> tuple[int, int, int]:
         name = p.name.lower()
         in_program_files = any(part.lower().startswith("program files") for part in p.parts)
         return (
-            1 if any(name.startswith(u) for u in uninstall) else 0,
+            1 if name.startswith(UNINSTALL_PREFIXES) else 0,
             0 if in_program_files else 1,
             -p.stat().st_size,
         )
