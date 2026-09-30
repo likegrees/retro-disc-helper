@@ -76,6 +76,13 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
         for hit in protection.scan(cd_dir):
             protections.setdefault(hit.name, set()).update(hit.files)
 
+    # Newer protections live inside the installed .exe (unpacked from the installer), not on
+    # the disc: check the game that was actually installed as well.
+    if game.exe and Path(game.exe).is_file():
+        exe = Path(game.exe)
+        for hit in protection.scan(exe.parent, max_depth=1, extra_exes=[exe]):
+            protections.setdefault(hit.name, set()).update(hit.files)
+
     if audio_tracks:
         add(
             CheckResult(
@@ -92,10 +99,7 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
             CheckResult(
                 tr("Copy protection: {name}").format(name=name),
                 Status.WARN,
-                tr(
-                    "Found {files}. Wine usually cannot run this protection: if the game "
-                    "refuses to start, look for the GOG release or use 86Box."
-                ).format(files=", ".join(sorted(files))),
+                protection_advice(", ".join(sorted(files))),
             )
         )
 
@@ -169,6 +173,14 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
             )
         )
     return results
+
+
+def protection_advice(files: str) -> str:
+    return tr(
+        "Found in {files}. Proton cannot pass this protection's disc check, so the game "
+        "reports that no disc is inserted even with drive R: set up. Look for an official "
+        "patch or re-release without the disc check, or use 86Box."
+    ).format(files=files)
 
 
 def _iso_check(title: str, iso_value: str | None, sheet: CueSheet | None) -> CheckResult:

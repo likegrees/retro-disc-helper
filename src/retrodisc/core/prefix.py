@@ -113,7 +113,7 @@ def repoint_install_paths(pfx: Path, cd_dirs: list[Path], dry_run: bool = False)
     drive = f"{CD_LETTER.upper()}:\\\\"  # R:\\ as written in .reg files
     patterns = [
         re.compile(
-            r'(?<=")' + re.escape(form.replace("\\", "\\\\")) + r'(?:\\\\|(?="))',
+            r'(?<=["; ])' + re.escape(form.replace("\\", "\\\\")) + r'(?:\\\\|(?=[";]))',
             re.IGNORECASE,
         )
         for cd_dir in cd_dirs

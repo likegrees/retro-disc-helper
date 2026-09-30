@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from retrodisc.core import convert, exe_inspect, iso, prefix, protection
 from retrodisc.core.cue import CueError, CueSheet, parse_cue
+from retrodisc.core.diagnostics import protection_advice
 from retrodisc.core.library import Game
 from retrodisc.core.steam import Shortcut, Steam, SteamError, install_proton
 from retrodisc.ui.common import show_error, start_game, with_steam_closed
@@ -502,10 +503,9 @@ class ExtractPage(BasePage):
                     found.setdefault(hit.name, set()).update(hit.files)
         for name, files in found.items():
             notes.append(
-                self.tr(
-                    "{name} copy protection detected ({files}). Wine usually cannot run it: "
-                    "if the game refuses to start, look for the GOG release or use 86Box."
-                ).format(name=name, files=", ".join(sorted(files)))
+                self.tr("{name} copy protection.").format(name=name)
+                + " "
+                + protection_advice(", ".join(sorted(files)))
             )
             self.cd_check.setChecked(True)
         self.warnings.setText("\n\n".join(notes))
@@ -778,7 +778,8 @@ class InstallPage(BasePage):
 
 
 def _installed_exes(steam: Steam, game: Game) -> list[Path]:
-    assert game.appid is not None
+    if game.appid is None:
+        return []
     drive_c = steam.prefix(game.appid) / "drive_c"
     if not drive_c.is_dir():
         return []
@@ -799,6 +800,8 @@ class FinalizePage(BasePage):
         self.exes.setObjectName("big")
         self.exes.currentIndexChanged.connect(self._exe_changed)
         self.exe_path = _label(kind="hint")
+        self.exe_protection = _label(kind="warn")
+        self.exe_protection.hide()
         browse = QPushButton(self.tr("Browse…"))
         browse.clicked.connect(self._browse)
         self.name_edit = QLineEdit()
@@ -832,6 +835,7 @@ class FinalizePage(BasePage):
         layout.addWidget(QLabel(self.tr("Game executable")))
         layout.addLayout(_row(self.exes, browse))
         layout.addWidget(self.exe_path)
+        layout.addWidget(self.exe_protection)
         layout.addWidget(self.found_hint)
         layout.addSpacing(8)
         layout.addWidget(QLabel(self.tr("Name in Steam")))
@@ -895,6 +899,14 @@ class FinalizePage(BasePage):
     def _exe_changed(self) -> None:
         exe = self._selected_exe()
         self.exe_path.setText(str(exe) if exe else "")
+        found = protection.scan_executable(exe) if exe and exe.is_file() else []
+        self.exe_protection.setVisible(bool(found))
+        if found and exe is not None:
+            self.exe_protection.setText(
+                self.tr("{exe} is protected by {name}.").format(exe=exe.name, name=found[0])
+                + " "
+                + protection_advice(exe.name)
+            )
         self.completeChanged.emit()
 
     def _browse(self) -> None:
