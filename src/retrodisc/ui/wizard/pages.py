@@ -54,6 +54,22 @@ def _row(*widgets: QWidget, stretch_first: bool = True) -> QHBoxLayout:
     return row
 
 
+def disc_targets(
+    field: Path, existing: list[str | None], defaults: list[Path], multi: bool
+) -> list[Path]:
+    """Where each disc's ISO / CD folder goes, from the path typed in the page.
+
+    Single disc: the field is the exact path. Several discs: the field is their parent
+    folder; discs already there keep their names, new ones get the default name.
+    """
+    if not multi:
+        return [field]
+    return [
+        Path(old) if old and Path(old).parent == field else field / default.name
+        for old, default in zip(existing, defaults, strict=True)
+    ]
+
+
 class BasePage(QWizardPage):
     @property
     def gw(self) -> GameWizard:
@@ -227,35 +243,53 @@ class ConvertPage(BasePage):
         self.button.clicked.connect(self._convert)
         self.status = _label()
 
+        self.field_label = QLabel()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(self.tr("Save the ISO in")))
+        layout.addWidget(self.field_label)
         layout.addLayout(_row(self.path_edit, browse))
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.status)
         layout.addStretch()
 
     def initializePage(self) -> None:
-        existing = next((d.iso for d in self.game.discs if d.iso), None)
-        folder = Path(existing).parent if existing else self.game.folder
-        self.path_edit.setText(str(folder))
+        if self.game.multi_disc:
+            self.field_label.setText(self.tr("Save the ISO files in"))
+            existing = next((d.iso for d in self.game.discs if d.iso), None)
+            self.path_edit.setText(str(Path(existing).parent if existing else self.game.folder))
+        else:
+            self.field_label.setText(self.tr("ISO file"))
+            self.path_edit.setText(self.game.iso or str(self.game.default_iso(0)))
         self._refresh()
 
-    def _browse(self) -> None:
-        path = QFileDialog.getExistingDirectory(
-            self, self.tr("Save the ISO in"), self.path_edit.text()
+    def _targets(self) -> list[Path]:
+        return disc_targets(
+            Path(self.path_edit.text()).expanduser(),
+            [d.iso for d in self.game.discs],
+            [self.game.default_iso(i) for i in range(len(self.game.discs))],
+            self.game.multi_disc,
         )
+
+    def _browse(self) -> None:
+        if self.game.multi_disc:
+            path = QFileDialog.getExistingDirectory(
+                self, self.tr("Save the ISO files in"), self.path_edit.text()
+            )
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self, self.tr("Save ISO as"), self.path_edit.text(), "ISO (*.iso)"
+            )
         if path:
             self.path_edit.setText(path)
 
     def _convert(self) -> None:
-        folder = Path(self.path_edit.text()).expanduser()
+        targets = self._targets()
         again = all(d.converted for d in self.game.discs)
         todo = [(i, d) for i, d in enumerate(self.game.discs) if again or not d.converted]
         try:
-            folder.mkdir(parents=True, exist_ok=True)
             for n, (index, disc) in enumerate(todo, start=1):
                 sheet = parse_cue(Path(disc.cue))
-                output = folder / self.game.default_iso(index).name
+                output = targets[index]
+                output.parent.mkdir(parents=True, exist_ok=True)
                 title = self.tr("Creating ISO…")
                 if self.game.multi_disc:
                     title = self.tr("Creating ISO for {disc} ({n} of {total})…").format(
@@ -318,6 +352,7 @@ class ExtractPage(BasePage):
         self.button = QPushButton(self.tr("Extract"))
         self.button.clicked.connect(self._extract)
         self.where = _label(kind="hint")
+        self.path_edit.textChanged.connect(self._update_where)
 
         self.installer = QComboBox()
         self.installer.currentIndexChanged.connect(self._installer_changed)
@@ -333,8 +368,9 @@ class ExtractPage(BasePage):
         details_layout.addWidget(self.warnings)
         details_layout.addWidget(self.cd_check)
 
+        self.field_label = QLabel()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(self.tr("Destination folder")))
+        layout.addWidget(self.field_label)
         layout.addLayout(_row(self.path_edit, browse))
         layout.addWidget(self.where)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -342,9 +378,13 @@ class ExtractPage(BasePage):
         layout.addStretch()
 
     def initializePage(self) -> None:
-        existing = next((d.cd_dir for d in self.game.discs if d.cd_dir), None)
-        folder = Path(existing).parent if existing else self.game.folder
-        self.path_edit.setText(str(folder))
+        if self.game.multi_disc:
+            self.field_label.setText(self.tr("Extract the discs into"))
+            existing = next((d.cd_dir for d in self.game.discs if d.cd_dir), None)
+            self.path_edit.setText(str(Path(existing).parent if existing else self.game.folder))
+        else:
+            self.field_label.setText(self.tr("Extract to"))
+            self.path_edit.setText(self.game.cd_dir or str(self.game.default_cd_dir(0)))
         if self.game.multi_disc:
             self.cd_check.setChecked(True)
             self.cd_check.setEnabled(False)
@@ -354,8 +394,12 @@ class ExtractPage(BasePage):
         self._refresh()
 
     def _targets(self) -> list[Path]:
-        folder = Path(self.path_edit.text()).expanduser()
-        return [folder / self.game.default_cd_dir(i).name for i in range(len(self.game.discs))]
+        return disc_targets(
+            Path(self.path_edit.text()).expanduser(),
+            [d.cd_dir for d in self.game.discs],
+            [self.game.default_cd_dir(i) for i in range(len(self.game.discs))],
+            self.game.multi_disc,
+        )
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, self.tr("Extract to"), self.path_edit.text())
@@ -389,14 +433,17 @@ class ExtractPage(BasePage):
         self.save()
         self._refresh()
 
-    def _refresh(self) -> None:
+    def _update_where(self) -> None:
         self.where.setText(
-            self.tr("Extracted to: {folders}").format(
-                folders=", ".join(p.name for p in self._targets())
+            self.tr("Each disc gets its own folder: {folders}").format(
+                folders=", ".join(str(p) for p in self._targets())
             )
             if self.game.multi_disc
             else ""
         )
+
+    def _refresh(self) -> None:
+        self._update_where()
         cd_dir = Path(self.game.cd_dir) if self.game.cd_dir else None
         extracted = all(d.extracted for d in self.game.discs)
         self.details.setVisible(extracted)
