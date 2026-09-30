@@ -255,14 +255,21 @@ def _cd_drive_check(game: Game, steam: Steam) -> CheckResult:
     disc = game.discs[game.current_disc]
     cd_dir = Path(disc.cd_dir) if disc.extracted and disc.cd_dir else None
     status = prefix.cd_drive_status(pfx, cd_dir)
-    title = tr("Drive S: (CD)")
+    title = tr("Drive R: (CD)")
     if game.multi_disc:
-        title = tr("Drive S: ({disc} inserted)").format(disc=game.disc_label(game.current_disc))
+        title = tr("Drive R: ({disc} inserted)").format(disc=game.disc_label(game.current_disc))
     if not status.prefix_exists:
         return CheckResult(
             title, Status.FAIL, tr("Launch the game once from Steam so Proton creates its prefix.")
         )
-    if status.ok:
+    legacy = any(
+        prefix.registry_drive_type(pfx, old) == "cdrom" for old in prefix.LEGACY_CD_LETTERS
+    )
+    if (
+        status.ok
+        and not legacy
+        and not prefix.repoint_install_paths(pfx, game.cd_dirs(), dry_run=True)
+    ):
         return CheckResult(
             title,
             Status.OK,
@@ -272,20 +279,32 @@ def _cd_drive_check(game: Game, steam: Steam) -> CheckResult:
         )
     problems = []
     if not status.link_ok:
-        problems.append(tr('S: does not point to the extracted CD ("File not found")'))
+        problems.append(tr('R: does not point to the extracted CD ("File not found")'))
     if status.label is None or status.serial is None:
         problems.append(tr("label/serial files missing"))
     if not status.registry_ok:
-        problems.append(tr("S: is not marked as a CD-ROM in the registry"))
+        problems.append(tr("R: is not marked as a CD-ROM in the registry"))
+    if any(prefix.registry_drive_type(pfx, old) == "cdrom" for old in prefix.LEGACY_CD_LETTERS):
+        problems.append(
+            tr("set up as drive S: by an older version, which Proton removes at every launch")
+        )
+    stale = prefix.repoint_install_paths(pfx, game.cd_dirs(), dry_run=True)
+    if stale:
+        problems.append(
+            tr(
+                "the installer recorded the CD as a folder on Z: ({n} registry entries), "
+                "so the game may not find its disc"
+            ).format(n=stale)
+        )
     fix: Callable[[], None] | None = None
     if cd_dir is not None and disc.converted and disc.iso:
         info, cd = iso.volume_info(Path(disc.iso)), cd_dir
 
         def _fix() -> None:
-            prefix.setup_cd_drive(pfx, cd, info)
+            prefix.setup_cd_drive(pfx, cd, info, game.cd_dirs())
 
         fix = _fix
-    return CheckResult(title, Status.FAIL, "; ".join(problems), fix, tr("Repair drive S:"))
+    return CheckResult(title, Status.FAIL, "; ".join(problems), fix, tr("Repair drive R:"))
 
 
 def _windows_version_check(game: Game, steam: Steam) -> CheckResult:

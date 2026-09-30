@@ -106,7 +106,7 @@ def test_multi_disc_roundtrip_and_steps(tmp_path: Path) -> None:
     assert loaded.discs[1].iso == str(iso1)
 
 
-# ---- drive S: -----------------------------------------------------------------------------
+# ---- drive R: -----------------------------------------------------------------------------
 
 
 def test_insert_disc_switches_label_and_serial(tmp_path: Path) -> None:

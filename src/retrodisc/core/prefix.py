@@ -1,7 +1,7 @@
-"""Wine prefix tweaks: expose the extracted CD as drive S: with the original label/serial.
+"""Wine prefix tweaks: expose the extracted CD as drive R: with the original label/serial.
 
-Wine maps a Unix path to the deepest drive whose root contains it, so once S: points at the
-extracted CD folder a Steam shortcut targeting an .exe inside that folder runs from S:\\.
+Wine maps a Unix path to the deepest drive whose root contains it, so once R: points at the
+extracted CD folder a Steam shortcut targeting an .exe inside that folder runs from R:\\.
 """
 
 from __future__ import annotations
@@ -13,7 +13,10 @@ from pathlib import Path
 
 from retrodisc.core.iso import VolumeInfo
 
-CD_LETTER = "s"  # D:/E: get reassigned to the microSD by Wine on every start
+# Proton deletes S: and T: on every launch (its "game drive" and "steam drive" options) and
+# Wine gives removable devices the first free letter from C:/D: upward (the microSD is D:).
+CD_LETTER = "r"
+LEGACY_CD_LETTERS = ("s",)  # used by earlier versions of this app
 LABEL_FILE = ".windows-label"
 SERIAL_FILE = ".windows-serial"
 DRIVES_KEY = r"Software\\Wine\\Drives"
@@ -71,8 +74,10 @@ def cd_drive_status(pfx: Path, cd_dir: Path | None = None) -> CdDriveStatus:
     )
 
 
-def setup_cd_drive(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
-    """Link S: to `cd_dir`, write label/serial files, mark S: as a CD-ROM in the registry.
+def setup_cd_drive(
+    pfx: Path, cd_dir: Path, volume: VolumeInfo, other_cd_dirs: list[Path] | None = None
+) -> None:
+    """Link R: to `cd_dir`, write label/serial files, mark R: as a CD-ROM in the registry.
 
     The game must not be running (Wine rewrites system.reg on exit).
     """
@@ -82,6 +87,50 @@ def setup_cd_drive(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
         )
     insert_disc(pfx, cd_dir, volume)
     set_registry_drive_type(pfx, "cdrom")
+    remove_legacy_drives(pfx)
+    repoint_install_paths(pfx, [cd_dir, *(other_cd_dirs or [])])
+
+
+def remove_legacy_drives(pfx: Path) -> None:
+    """Drop the S: drive earlier versions created: Proton deletes its link at every launch."""
+    for letter in LEGACY_CD_LETTERS:
+        if registry_drive_type(pfx, letter) == "cdrom":
+            write_reg_value(pfx / "system.reg", DRIVES_KEY, f"{letter}:", None)
+
+
+def _windows_forms(cd_dir: Path) -> list[str]:
+    """The CD folder as Windows programs saw it through Z: (plain and symlink-resolved)."""
+    paths = {str(cd_dir.absolute()), str(cd_dir.resolve())}
+    return ["Z:" + p.replace("/", "\\") for p in paths if p.isascii()]
+
+
+def repoint_install_paths(pfx: Path, cd_dirs: list[Path], dry_run: bool = False) -> int:
+    """Rewrite registry paths into the CD folder via Z: (e.g. "InstallSource") to the CD drive.
+
+    Installers record where they ran from. When that was the extracted folder, the game later
+    looks for its disc on Z:, which is not a CD drive. Returns how many values (would) change.
+    """
+    drive = f"{CD_LETTER.upper()}:\\\\"  # R:\\ as written in .reg files
+    patterns = [
+        re.compile(
+            r'(?<=")' + re.escape(form.replace("\\", "\\\\")) + r'(?:\\\\|(?="))',
+            re.IGNORECASE,
+        )
+        for cd_dir in cd_dirs
+        for form in _windows_forms(cd_dir)
+    ]
+    total = 0
+    for reg in (pfx / "system.reg", pfx / "user.reg"):
+        if not reg.exists():
+            continue
+        text = _read_reg(reg)
+        changed = text
+        for pattern in patterns:
+            changed, count = pattern.subn(lambda _m: drive, changed)
+            total += count
+        if changed != text and not dry_run:
+            _write_reg(reg, changed)
+    return total
 
 
 def write_volume_files(cd_dir: Path, volume: VolumeInfo) -> None:
@@ -91,7 +140,7 @@ def write_volume_files(cd_dir: Path, volume: VolumeInfo) -> None:
 
 
 def insert_disc(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
-    """Point S: at `cd_dir`, like putting that disc in the drive. Safe while the game runs."""
+    """Point R: at `cd_dir`, like putting that disc in the drive. Safe while the game runs."""
     if not cd_dir.is_dir():
         raise PrefixError(f"CD folder not found: {cd_dir}")
     if not (pfx / "dosdevices").is_dir():
@@ -100,10 +149,10 @@ def insert_disc(pfx: Path, cd_dir: Path, volume: VolumeInfo) -> None:
         )
     write_volume_files(cd_dir, volume)
     link = drive_link(pfx)
-    tmp = link.with_name("s:.new")
+    tmp = link.with_name(f"{CD_LETTER}:.new")
     tmp.unlink(missing_ok=True)
     tmp.symlink_to(cd_dir.resolve(), target_is_directory=True)
-    tmp.replace(link)  # atomic: S: is never missing while a game polls it
+    tmp.replace(link)  # atomic: R: is never missing while a game polls it
 
 
 # ---- Windows version reported to programs ---------------------------------------------
@@ -142,6 +191,17 @@ def set_windows_version(pfx: Path, version: str | None) -> None:
 # ---- registry file editing (system.reg = HKLM, user.reg = HKCU) --------------------------
 
 
+def _read_reg(reg: Path) -> str:
+    # surrogateescape keeps any non-UTF-8 byte intact when the file is written back.
+    return reg.read_text(encoding="utf-8", errors="surrogateescape")
+
+
+def _write_reg(reg: Path, text: str) -> None:
+    tmp = reg.with_name(reg.name + ".retrodisc-tmp")
+    tmp.write_text(text, encoding="utf-8", errors="surrogateescape")
+    tmp.replace(reg)
+
+
 def _section_bounds(lines: list[str], key: str) -> tuple[int, int] | None:
     header = f"[{key}]".lower()
     for i, line in enumerate(lines):
@@ -159,7 +219,7 @@ def _value_pattern(name: str) -> re.Pattern[str]:
 
 def read_reg_value(reg: Path, key: str, name: str) -> str | None:
     try:
-        lines = reg.read_text(errors="replace").splitlines()
+        lines = _read_reg(reg).splitlines()
     except OSError:
         return None
     bounds = _section_bounds(lines, key)
@@ -174,7 +234,7 @@ def read_reg_value(reg: Path, key: str, name: str) -> str | None:
 
 def write_reg_value(reg: Path, key: str, name: str, value: str | None) -> None:
     """Set a string value (or delete it when `value` is None) in a Wine registry file."""
-    lines = reg.read_text(errors="replace").splitlines()
+    lines = _read_reg(reg).splitlines()
     entry = [f'"{name}"="{value}"'] if value is not None else []
     bounds = _section_bounds(lines, key)
     if bounds is None:
@@ -191,7 +251,7 @@ def write_reg_value(reg: Path, key: str, name: str, value: str | None) -> None:
         while body and not body[-1].strip():
             body.pop()
         lines[start + 1 : end] = [*body, *entry, ""]
-    reg.write_text("\n".join(lines) + "\n")
+    _write_reg(reg, "\n".join(lines) + "\n")
 
 
 def registry_drive_type(pfx: Path, letter: str = CD_LETTER) -> str | None:

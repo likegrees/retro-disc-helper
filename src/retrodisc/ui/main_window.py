@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         for game in self.library.games:
             detail = self._step_text(game)
             if game.multi_disc:
-                detail = self.tr("{n} discs · {disc} in drive S: · {step}").format(
+                detail = self.tr("{n} discs · {disc} in drive R: · {step}").format(
                     n=len(game.discs), disc=game.disc_label(game.current_disc), step=detail
                 )
             item = QListWidgetItem(f"{game.name}\n{detail}")

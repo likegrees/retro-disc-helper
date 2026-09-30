@@ -109,7 +109,7 @@ def test_registry_edit(tmp_path: Path) -> None:
     assert registry_drive_type(tmp_path) == "cdrom"
     set_registry_drive_type(tmp_path, "cdrom")  # idempotent
     text = (tmp_path / "system.reg").read_text()
-    assert text.count('"s:"="cdrom"') == 1
+    assert text.count('"r:"="cdrom"') == 1
     assert '"d:"="hd"' in text and '"x"="y"' in text
 
 

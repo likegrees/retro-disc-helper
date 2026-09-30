@@ -257,7 +257,7 @@ class Steam:
     def prepare_prefix(self, appid: int, tool_name: str, timeout: float = 300.0) -> Path:
         """Create the game's Proton prefix now, as its first launch from Steam would.
 
-        Lets drive S: exist before the installer runs, which multi-disc installers need to
+        Lets drive R: exist before the installer runs, which multi-disc installers need to
         find the next disc. Returns the prefix path.
         """
         pfx = self.prefix(appid)

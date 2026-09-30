@@ -67,7 +67,7 @@ class Game:
     cd_drive: bool = False
     notes: list[str] = field(default_factory=list)
     more_discs: list[Disc] = field(default_factory=list)  # disc 2, 3, ...
-    current_disc: int = 0  # index of the disc drive S: shows
+    current_disc: int = 0  # index of the disc drive R: shows
     windows_version: str | None = None  # Wine name ("winxp", ...); None = Proton default
 
     @property
@@ -92,6 +92,10 @@ class Game:
         self.update_disc(0, discs[0])
         self.more_discs = discs[1:]
         self.current_disc = min(self.current_disc, len(discs) - 1)
+
+    def cd_dirs(self) -> list[Path]:
+        """Extracted CD folders of every disc."""
+        return [Path(d.cd_dir) for d in self.discs if d.cd_dir]
 
     def disc_label(self, index: int) -> str:
         return tr("Disc {n}").format(n=index + 1)

@@ -182,7 +182,7 @@ class DiscPage(BasePage):
         if self.game.multi_disc:
             notes.append(
                 self.tr(
-                    "Multi-disc game: each disc gets its own folder, and drive S: can switch "
+                    "Multi-disc game: each disc gets its own folder, and drive R: can switch "
                     "between them when the game asks for another disc."
                 )
             )
@@ -356,7 +356,7 @@ class ExtractPage(BasePage):
         self.installer = SafeComboBox()
         self.installer.currentIndexChanged.connect(self._installer_changed)
         self.warnings = _label(kind="warn")
-        self.cd_check = QCheckBox(self.tr("The game checks for its CD (set up drive S: later)"))
+        self.cd_check = QCheckBox(self.tr("The game checks for its CD (set up drive R: later)"))
         self.cd_check.toggled.connect(self._cd_toggled)
 
         self.details = QWidget()
@@ -387,7 +387,7 @@ class ExtractPage(BasePage):
         if self.game.multi_disc:
             self.cd_check.setChecked(True)
             self.cd_check.setEnabled(False)
-            self.cd_check.setText(self.tr("Multi-disc game: drive S: is always used"))
+            self.cd_check.setText(self.tr("Multi-disc game: drive R: is always used"))
         else:
             self.cd_check.setChecked(self.game.cd_drive)
         self._refresh()
@@ -651,7 +651,7 @@ class InstallPage(BasePage):
         )
         if self.game.multi_disc:
             text += "\n\n" + self.tr(
-                "This game has {n} discs. Disc 1 is put in drive S: before the installer "
+                "This game has {n} discs. Disc 1 is put in drive R: before the installer "
                 "starts. When the installer asks for the next disc, choose it below, then "
                 "click OK in the installer."
             ).format(n=len(self.game.discs))
@@ -664,7 +664,7 @@ class InstallPage(BasePage):
         return self.game.multi_disc
 
     def _prepare_drive(self) -> bool:
-        """Create the Proton prefix and put disc 1 in S:, so the installer runs from S:."""
+        """Create the Proton prefix and put disc 1 in R:, so the installer runs from R:."""
         steam, appid, proton = self.gw.steam, self.game.appid, self.game.proton
         disc = self.game.discs[0]
         if steam is None or appid is None or proton is None or not disc.cd_dir or not disc.iso:
@@ -674,12 +674,12 @@ class InstallPage(BasePage):
 
         def job(_report: Reporter) -> None:
             pfx = steam.prepare_prefix(appid, proton)
-            prefix.setup_cd_drive(pfx, cd_dir, iso.volume_info(iso_path))
+            prefix.setup_cd_drive(pfx, cd_dir, iso.volume_info(iso_path), self.game.cd_dirs())
 
         try:
             run_with_progress(
                 self,
-                self.tr("Preparing Proton and drive S: (up to a minute)…"),
+                self.tr("Preparing Proton and drive R: (up to a minute)…"),
                 job,
                 cancellable=False,
             )
@@ -695,7 +695,7 @@ class InstallPage(BasePage):
     def _disc_changed(self) -> None:
         self.gw.save()
         self.status.setText(
-            self.tr("Drive S: now holds {disc}.").format(
+            self.tr("Drive R: now holds {disc}.").format(
                 disc=self.game.disc_label(self.game.current_disc)
             )
         )
@@ -755,7 +755,7 @@ class FinalizePage(BasePage):
         cd_layout = QVBoxLayout(self.cd_box)
         cd_layout.setContentsMargins(0, 8, 0, 0)
         self.cd_status = _label()
-        self.cd_button = QPushButton(self.tr("Set up drive S:"))
+        self.cd_button = QPushButton(self.tr("Set up drive R:"))
         self.cd_button.clicked.connect(self._setup_cd)
         cd_layout.addWidget(QLabel(self.tr("CD drive")))
         cd_layout.addWidget(self.cd_status)
@@ -819,11 +819,11 @@ class FinalizePage(BasePage):
         self._refresh()
 
     def _windows_path(self, path: Path) -> str:
-        """How the game sees the folder: C:\\... inside the prefix, S:\\... on the CD."""
+        """How the game sees the folder: C:\\... inside the prefix, R:\\... on the CD."""
         roots: list[tuple[Path, str]] = []
         if self.gw.steam is not None and self.game.appid is not None:
             roots.append((self.gw.steam.prefix(self.game.appid) / "drive_c", "C:"))
-        roots += [(Path(d.cd_dir), "S:") for d in self.game.discs if d.cd_dir]
+        roots += [(Path(d.cd_dir), "R:") for d in self.game.discs if d.cd_dir]
         for root, letter in roots:
             if path.parent.is_relative_to(root):
                 rest = path.parent.relative_to(root).parts
@@ -894,6 +894,7 @@ class FinalizePage(BasePage):
                 steam.prefix(self.game.appid),
                 Path(disc.cd_dir),
                 iso.volume_info(Path(disc.iso)),
+                self.game.cd_dirs(),
             )
         except Exception as exc:
             show_error(self, exc)
@@ -918,17 +919,17 @@ class FinalizePage(BasePage):
         cd_dir = Path(disc.cd_dir) if disc.cd_dir else None
         status = prefix.cd_drive_status(steam.prefix(self.game.appid), cd_dir)
         if status.ok:
-            text = self.tr("S: is the game CD ({label}, serial {serial}).").format(
+            text = self.tr("R: is the game CD ({label}, serial {serial}).").format(
                 label=status.label, serial=status.serial
             )
             if self.game.multi_disc:
-                text = self.tr("S: holds {disc} ({label}, serial {serial}).").format(
+                text = self.tr("R: holds {disc} ({label}, serial {serial}).").format(
                     disc=self.game.disc_label(self.game.current_disc),
                     label=status.label,
                     serial=status.serial,
                 )
             self.cd_status.setText(text)
-            self.cd_button.setText(self.tr("Set up drive S: again"))
+            self.cd_button.setText(self.tr("Set up drive R: again"))
         elif not status.prefix_exists:
             self.cd_status.setText(
                 self.tr("Press Play once and close the game: Proton needs to create its files.")

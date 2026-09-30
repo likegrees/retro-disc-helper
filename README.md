@@ -11,9 +11,15 @@ It automates the manual Proton workflow for running disc-image games on SteamOS:
 4. **Add to Steam**: writes the non-Steam shortcut and the forced Proton version straight into Steam's
    config (Steam must be closed, and backups are made as `*.bak-<timestamp>`).
 5. **Install**: starts the installer through Steam.
-6. **Set up**: points the shortcut at the installed game exe. Optionally creates **drive S:** with the
+6. **Set up**: points the shortcut at the installed game exe. Optionally creates **drive R:** with the
    original disc's label and serial, and writes `s:=cdrom` into the prefix's `system.reg`
    (Protontricks is not needed).
+
+**Why drive R:** Proton deletes `S:` and `T:` from the prefix at every launch (they belong to its
+"game drive" and "steam drive" options), and Wine gives removable devices such as the microSD the
+first free letters from `D:` upward, so the CD drive uses `R:`. Setting it up also rewrites paths
+the installer recorded to the CD folder through `Z:` (e.g. `InstallSource`) to `R:\`, and removes
+the `S:` drive created by versions before 0.4.0.
 
 **Windows version**: per game, choose which Windows Proton reports (default Windows 10, or
 7, XP, 2000, 98), for old games and installers that refuse newer versions. It is set in the
@@ -23,9 +29,9 @@ installer too and no other game is affected.
 **Multi-disc games**: pick any disc's `.cue` (or an `.m3u` playlist) and the other discs are
 found automatically (Redump `(Disc N)` / `CDn` names). Each disc is converted and extracted into
 its own folder (`cd1`, `cd2`, …). Before installing, the app prepares the Proton prefix and puts
-disc 1 in drive S:, so the installer runs from S:. When it asks for the next disc, choose it in
+disc 1 in drive R:, so the installer runs from R:. When it asks for the next disc, choose it in
 the wizard or with **Change disc** in the main window. Swapping works while the installer or game
-is running, and S: takes on each disc's own label and serial.
+is running, and R: takes on each disc's own label and serial.
 
 The **Troubleshoot** window checks for the usual Proton problems and offers one-click fixes.
 

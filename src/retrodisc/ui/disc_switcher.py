@@ -1,4 +1,4 @@
-"""Choose which disc drive S: shows: the equivalent of swapping CDs in the drive."""
+"""Choose which disc drive R: shows: the equivalent of swapping CDs in the drive."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _tr(text: str) -> str:
 
 
 def insert_disc(parent: QWidget | None, steam: Steam, game: Game, index: int) -> bool:
-    """Point S: at disc `index` of `game`. Shows errors; returns True on success."""
+    """Point R: at disc `index` of `game`. Shows errors; returns True on success."""
     disc = game.discs[index]
     if game.appid is None or not disc.extracted or not disc.converted:
         show_error(parent, _tr("{disc} is not extracted yet.").format(disc=game.disc_label(index)))
@@ -39,7 +39,7 @@ def insert_disc(parent: QWidget | None, steam: Steam, game: Game, index: int) ->
 
 
 class DiscSwitcher(QWidget):
-    """Combo box choosing the disc in drive S:. Calls `on_change` after a successful swap."""
+    """Combo box choosing the disc in drive R:. Calls `on_change` after a successful swap."""
 
     def __init__(self, on_change: Callable[[], None], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,7 +50,7 @@ class DiscSwitcher(QWidget):
         self.combo.activated.connect(self._activated)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel(_tr("Disc in drive S:")))
+        layout.addWidget(QLabel(_tr("Disc in drive R:")))
         layout.addWidget(self.combo, 1)
 
     def bind(self, steam: Steam | None, game: Game) -> None:
@@ -65,7 +65,7 @@ class DiscSwitcher(QWidget):
             and prefix.drive_link(steam.prefix(game.appid)).is_symlink()
         )
         self.setEnabled(ready)
-        self.setToolTip("" if ready else _tr("Set up drive S: first."))
+        self.setToolTip("" if ready else _tr("Set up drive R: first."))
 
     def _activated(self, index: int) -> None:
         if self.steam is None or self.game is None or index == self.game.current_disc:
