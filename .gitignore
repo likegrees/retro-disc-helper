@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+build/
+dist/
+*.AppImage
+.idea/
+
+# Personal notes
+Giochi PC d'epoca su SteamOS — promemoria.md

@@ -1,0 +1,43 @@
+[project]
+name = "retrodisc"
+version = "0.1.0"
+description = "Helper to run CUE/BIN PC games on Proton (SteamOS)"
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.7",
+    "pycdlib>=1.14",
+    "vdf>=3.4",
+]
+
+[project.scripts]
+retrodisc = "retrodisc.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+build = ["pyinstaller>=6.10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/retrodisc"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["pycdlib.*", "vdf.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

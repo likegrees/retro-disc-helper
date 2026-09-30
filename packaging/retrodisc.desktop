@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Retro Disc Helper
+Comment=Set up CUE/BIN PC games to run with Proton
+Exec=retrodisc
+Icon=retrodisc
+Terminal=false
+Categories=Game;Utility;
