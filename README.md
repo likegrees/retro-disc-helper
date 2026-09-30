@@ -34,6 +34,19 @@ Headless conversion only:
 retrodisc convert "Game (Europe).cue" [out.iso]
 ```
 
+## Releases
+
+Pushing a version tag builds the AppImage on GitHub Actions and attaches it (with a `.sha256`)
+to a GitHub Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Running the workflow by hand from the Actions tab builds the AppImage as a downloadable
+artifact without publishing a release.
+
 ## Development
 
 ```bash

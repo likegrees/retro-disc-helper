@@ -1,0 +1,71 @@
+name: Release AppImage
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Older glibc than SteamOS, so the AppImage runs there and on most distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+
+      - name: Install dependencies
+        run: uv sync --locked --group build
+
+      - name: Lint and type-check
+        run: |
+          uv run ruff check src tests
+          uv run mypy src
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Build AppImage
+        run: ./packaging/build-appimage.sh
+
+      - name: Name the AppImage after the version
+        id: name
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || version="dev-${GITHUB_SHA::7}"
+          file="dist/RetroDiscHelper-${version}-x86_64.AppImage"
+          mv dist/RetroDiscHelper-x86_64.AppImage "$file"
+          (cd dist && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke-test the AppImage
+        run: |
+          file="${{ steps.name.outputs.file }}"
+          output="$("$file" --appimage-extract-and-run convert 2>&1 || true)"
+          echo "$output"
+          grep -q "usage: retrodisc convert" <<< "$output"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RetroDiscHelper-AppImage
+          path: dist/RetroDiscHelper-*
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/RetroDiscHelper-*
+          generate_release_notes: true
