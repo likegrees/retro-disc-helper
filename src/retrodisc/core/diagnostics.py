@@ -38,7 +38,7 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
         return f"{title} ({game.disc_label(index)})" if game.multi_disc else title
 
     audio_tracks = 0
-    protections: dict[str, set[str]] = {}
+    hits: list[protection.ProtectionHit] = []
     for index, disc in enumerate(game.discs):
         # --- the disc image --------------------------------------------------------------
         sheet: CueSheet | None = None
@@ -73,15 +73,13 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
         add(CheckResult(title, Status.OK, str(cd_dir)))
         if index == 0:
             results += _installer_checks(game, cd_dir, steam)
-        for hit in protection.scan(cd_dir):
-            protections.setdefault(hit.name, set()).update(hit.files)
+        hits += protection.scan(cd_dir)
 
     # Newer protections live inside the installed .exe (unpacked from the installer), not on
     # the disc: check the game that was actually installed as well.
     if game.exe and Path(game.exe).is_file():
         exe = Path(game.exe)
-        for hit in protection.scan(exe.parent, max_depth=1, extra_exes=[exe]):
-            protections.setdefault(hit.name, set()).update(hit.files)
+        hits += protection.scan(exe.parent, max_depth=1, extra_exes=[exe])
 
     if audio_tracks:
         add(
@@ -94,12 +92,12 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
                 ).format(n=audio_tracks),
             )
         )
-    for name, files in protections.items():
+    for hit in protection.merge(hits):
         add(
             CheckResult(
-                tr("Copy protection: {name}").format(name=name),
+                tr("Copy protection: {name}").format(name=hit.label),
                 Status.WARN,
-                protection_advice(", ".join(sorted(files))),
+                protection_advice(", ".join(hit.files)),
             )
         )
 
@@ -175,12 +173,13 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
     return results
 
 
-def protection_advice(files: str) -> str:
-    return tr(
-        "Found in {files}. Proton cannot pass this protection's disc check, so the game "
-        "reports that no disc is inserted even with drive R: set up. Look for an official "
-        "patch or re-release without the disc check, or use 86Box."
-    ).format(files=files)
+def protection_advice(files: str | None = None) -> str:
+    advice = tr(
+        "Proton cannot pass this protection's disc check, so the game reports that no disc "
+        "is inserted even with drive R: set up. Look for an official patch or re-release "
+        "without the disc check, or use 86Box."
+    )
+    return tr("Found in {files}.").format(files=files) + " " + advice if files else advice
 
 
 def _iso_check(title: str, iso_value: str | None, sheet: CueSheet | None) -> CheckResult:

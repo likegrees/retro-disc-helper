@@ -11,12 +11,14 @@ from PySide6.QtGui import QHideEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -496,16 +498,17 @@ class ExtractPage(BasePage):
                         "if it is in the list."
                     )
                 )
-        found: dict[str, set[str]] = {}
-        for disc in self.game.discs:
-            if disc.extracted and disc.cd_dir:
-                for hit in protection.scan(Path(disc.cd_dir)):
-                    found.setdefault(hit.name, set()).update(hit.files)
-        for name, files in found.items():
+        hits = protection.merge(
+            hit
+            for disc in self.game.discs
+            if disc.extracted and disc.cd_dir
+            for hit in protection.scan(Path(disc.cd_dir))
+        )
+        for hit in hits:
             notes.append(
-                self.tr("{name} copy protection.").format(name=name)
+                self.tr("{name} copy protection.").format(name=hit.label)
                 + " "
-                + protection_advice(", ".join(sorted(files)))
+                + protection_advice(", ".join(hit.files))
             )
             self.cd_check.setChecked(True)
         self.warnings.setText("\n\n".join(notes))
@@ -798,6 +801,11 @@ class FinalizePage(BasePage):
         self.setSubTitle(self.tr("Choose the game's executable to replace the installer in Steam."))
         self.exes = SafeComboBox()
         self.exes.setObjectName("big")
+        # Long Windows paths must not widen the page: the full path is shown below anyway.
+        self.exes.setSizeAdjustPolicy(
+            SafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.exes.setMinimumContentsLength(20)
         self.exes.currentIndexChanged.connect(self._exe_changed)
         self.exe_path = _label(kind="hint")
         self.exe_protection = _label(kind="warn")
@@ -824,7 +832,9 @@ class FinalizePage(BasePage):
         self.play.clicked.connect(self._play)
         self.status = _label(kind="ok")
 
-        layout = QVBoxLayout(self)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
         self.found_hint = _label(
             self.tr(
                 "No program installed by the installer was found in the game's Proton "
@@ -844,7 +854,18 @@ class FinalizePage(BasePage):
         self.winver = WindowsVersionBox(self.gw_save)
         layout.addWidget(self.winver)
         layout.addStretch()
-        layout.addLayout(_row(self.status, self.apply, self.play))
+
+        # Scroll when everything is shown (warnings, CD drive, Windows version); keep the
+        # Steam buttons visible below.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll, 1)
+        outer.addLayout(_row(self.status, self.apply, self.play))
 
     def initializePage(self) -> None:
         self.name_edit.setText(self.game.name)
@@ -899,13 +920,13 @@ class FinalizePage(BasePage):
     def _exe_changed(self) -> None:
         exe = self._selected_exe()
         self.exe_path.setText(str(exe) if exe else "")
-        found = protection.scan_executable(exe) if exe and exe.is_file() else []
+        found = protection.detect_executable(exe) if exe and exe.is_file() else []
         self.exe_protection.setVisible(bool(found))
         if found and exe is not None:
             self.exe_protection.setText(
-                self.tr("{exe} is protected by {name}.").format(exe=exe.name, name=found[0])
+                self.tr("{exe} is protected by {name}.").format(exe=exe.name, name=found[0].label)
                 + " "
-                + protection_advice(exe.name)
+                + protection_advice()
             )
         self.completeChanged.emit()
 

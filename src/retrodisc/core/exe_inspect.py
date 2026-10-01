@@ -36,26 +36,6 @@ def exe_kind(path: Path) -> ExeKind:
     return ExeKind.DOS
 
 
-def pe_sections(path: Path) -> list[str]:
-    """Section names of a Windows PE executable ([] if it is not one). Reads only headers."""
-    try:
-        with path.open("rb") as f:
-            header = f.read(64)
-            if len(header) < 64 or header[:2] != b"MZ":
-                return []
-            (e_lfanew,) = struct.unpack_from("<I", header, 0x3C)
-            f.seek(e_lfanew)
-            pe = f.read(24)
-            if len(pe) < 24 or pe[:4] != b"PE\x00\x00":
-                return []
-            count, _, _, _, opt_size = struct.unpack_from("<HIIIH", pe, 6)
-            f.seek(e_lfanew + 24 + opt_size)
-            table = f.read(40 * min(count, 96))
-    except (OSError, struct.error):
-        return []
-    return [table[i : i + 8].rstrip(b"\0").decode("latin-1") for i in range(0, len(table) - 39, 40)]
-
-
 def _children_ci(folder: Path) -> dict[str, Path]:
     try:
         return {p.name.lower(): p for p in folder.iterdir()}

@@ -15,6 +15,11 @@ It automates the manual Proton workflow for running disc-image games on SteamOS:
    original disc's label and serial, and writes `s:=cdrom` into the prefix's `system.reg`
    (Protontricks is not needed).
 
+**Copy protection**: the extracted CD and the installed game's `.exe` are checked for protections
+whose disc check Proton cannot pass, with their version when it can be read (for example
+"SecuROM 4.68.00"). The rules for SecuROM, SafeDisc, StarForce, LaserLock and TAGES are ported
+from the signatures of [Detect It Easy](https://github.com/horsicq/Detect-It-Easy) (MIT).
+
 **Why drive R:** Proton deletes `S:` and `T:` from the prefix at every launch (they belong to its
 "game drive" and "steam drive" options), and Wine gives removable devices such as the microSD the
 first free letters from `D:` upward, so the CD drive uses `R:`. Setting it up also rewrites paths
