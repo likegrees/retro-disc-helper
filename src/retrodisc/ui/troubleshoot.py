@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from retrodisc.core.diagnostics import CheckResult, Status, run_checks
+from retrodisc.core import deep_scan
+from retrodisc.core.diagnostics import CheckResult, Status, deep_scan_checks, run_checks
 from retrodisc.core.library import Game, Library
 from retrodisc.core.steam import Steam, SteamRunningError
 from retrodisc.ui.common import ensure_steam_closed, show_error
@@ -26,6 +27,7 @@ ICONS = {
     Status.WARN: QStyle.StandardPixmap.SP_MessageBoxWarning,
     Status.FAIL: QStyle.StandardPixmap.SP_MessageBoxCritical,
     Status.SKIP: QStyle.StandardPixmap.SP_MediaSkipForward,
+    Status.INFO: QStyle.StandardPixmap.SP_MessageBoxInformation,
 }
 
 
@@ -45,6 +47,14 @@ class TroubleshootDialog(QDialog):
         buttons.rejected.connect(self.reject)
         rerun = buttons.addButton(self.tr("Check again"), QDialogButtonBox.ButtonRole.ActionRole)
         rerun.clicked.connect(self.refresh)
+        self.deep_results: list[deep_scan.FileResult] | None = None
+        deep = buttons.addButton(
+            self.tr("Deep scan (Detect It Easy)"), QDialogButtonBox.ButtonRole.ActionRole
+        )
+        deep.clicked.connect(self._deep_scan)
+        if not deep_scan.available():
+            deep.setEnabled(False)
+            deep.setToolTip(self.tr("Detect It Easy is not installed."))
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.area, 1)
@@ -57,6 +67,8 @@ class TroubleshootDialog(QDialog):
         except Exception as exc:
             show_error(self, exc)
             return
+        if self.deep_results is not None:
+            results = deep_scan_checks(self.deep_results, self.game) + results
         content = QWidget()
         grid = QGridLayout(content)
         grid.setColumnStretch(1, 1)
@@ -73,6 +85,23 @@ class TroubleshootDialog(QDialog):
                 grid.addWidget(button, row, 2)
         grid.setRowStretch(len(results), 1)
         self.area.setWidget(content)
+
+    def _deep_scan(self) -> None:
+        targets = deep_scan.targets_for(self.game)
+        if not targets:
+            show_error(self, self.tr("No program files to scan yet: extract the CD first."))
+            return
+        try:
+            self.deep_results = run_with_progress(
+                self,
+                self.tr("Detect It Easy is scanning {n} file(s)…").format(n=len(targets)),
+                lambda _r: deep_scan.scan(targets),
+                cancellable=False,
+            )
+        except Exception as exc:
+            show_error(self, exc)
+            return
+        self.refresh()
 
     def _apply(self, result: CheckResult) -> None:
         fix = result.fix

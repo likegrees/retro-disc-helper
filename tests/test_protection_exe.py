@@ -56,6 +56,11 @@ def make_pe(
     opt = bytearray(opt_size)
     struct.pack_into("<H", opt, 0, 0x10B)
     struct.pack_into("<I", opt, 16, 0x1000)  # entry point = start of .text
+    struct.pack_into("<III", opt, 28, 0x400000, 0x1000, 0x200)  # image base, alignments
+    struct.pack_into("<HH", opt, 40, 4, 0)  # OS version 4.0
+    struct.pack_into("<HH", opt, 48, 4, 0)  # subsystem version 4.0
+    struct.pack_into("<II", opt, 56, 0x1000 * (count + 1), headers)  # image, headers size
+    struct.pack_into("<H", opt, 68, 2)  # Windows GUI
     struct.pack_into("<I", opt, 92, 16)  # number of data directories
     if imports:
         struct.pack_into("<II", opt, 96 + 8, 0x1000 * count, len(idata))

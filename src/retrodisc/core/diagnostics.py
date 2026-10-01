@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from retrodisc.core import convert, exe_inspect, iso, prefix, protection
+from retrodisc.core import convert, deep_scan, exe_inspect, iso, prefix, protection
 from retrodisc.core.cue import CueError, CueSheet, parse_cue
 from retrodisc.core.library import Game
 from retrodisc.core.steam import Steam, SteamError, is_steam_running
@@ -19,6 +19,7 @@ class Status(StrEnum):
     WARN = "warn"
     FAIL = "fail"
     SKIP = "skip"
+    INFO = "info"
 
 
 @dataclass
@@ -345,3 +346,49 @@ def _windows_version_check(game: Game, steam: Steam) -> CheckResult:
         _fix,
         tr("Set {version} again").format(version=label),
     )
+
+
+def deep_scan_checks(results: list[deep_scan.FileResult], game: Game) -> list[CheckResult]:
+    """Troubleshoot rows for a Detect It Easy scan."""
+    rows: list[CheckResult] = []
+    by_protection: dict[str, list[str]] = {}
+    for result in results:
+        for finding in result.protections:
+            by_protection.setdefault(finding.label, []).append(result.path.name)
+    for label, files in by_protection.items():
+        rows.append(
+            CheckResult(
+                tr("Detect It Easy: {protection}").format(protection=label),
+                Status.WARN,
+                protection_advice(", ".join(dict.fromkeys(files))),
+            )
+        )
+    scanned = [r for r in results if not r.error]
+    if not by_protection:
+        rows.append(
+            CheckResult(
+                tr("Detect It Easy"),
+                Status.OK,
+                tr("{n} file(s) checked, no copy protection found.").format(n=len(scanned)),
+            )
+        )
+    main = next((r for r in results if game.exe and str(r.path) == game.exe), None)
+    main = main or next((r for r in results if r.findings), None)
+    if main is not None and main.findings:
+        rows.append(
+            CheckResult(
+                tr("Detect It Easy: {file}").format(file=main.path.name),
+                Status.INFO,
+                "; ".join(f"{f.type}: {f.label}" for f in main.findings),
+            )
+        )
+    failed = [r for r in results if r.error]
+    if failed:
+        rows.append(
+            CheckResult(
+                tr("Detect It Easy: not scanned"),
+                Status.INFO,
+                "; ".join(f"{r.path.name} ({r.error})" for r in failed),
+            )
+        )
+    return rows

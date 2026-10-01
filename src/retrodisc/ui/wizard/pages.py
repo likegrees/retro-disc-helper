@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QCoreApplication, Qt, QTimer
 from PySide6.QtGui import QHideEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -71,6 +71,15 @@ def disc_targets(
         Path(old) if old and Path(old).parent == field else field / default.name
         for old, default in zip(existing, defaults, strict=True)
     ]
+
+
+def deep_scan_hint() -> str:
+    return QCoreApplication.translate(
+        "pages",
+        "The copy protection check here is quick. Once the setup is complete, Troubleshoot "
+        "in the main window can run a deeper scan with Detect It Easy, which recognizes more "
+        "protections and their versions.",
+    )
 
 
 class BasePage(QWizardPage):
@@ -369,6 +378,7 @@ class ExtractPage(BasePage):
         details_layout.addWidget(QLabel(self.tr("Installer")))
         details_layout.addWidget(self.installer)
         details_layout.addWidget(self.warnings)
+        details_layout.addWidget(_label(deep_scan_hint(), kind="hint"))
         details_layout.addWidget(self.cd_check)
 
         self.field_label = QLabel()
@@ -846,6 +856,7 @@ class FinalizePage(BasePage):
         layout.addLayout(_row(self.exes, browse))
         layout.addWidget(self.exe_path)
         layout.addWidget(self.exe_protection)
+        layout.addWidget(_label(deep_scan_hint(), kind="hint"))
         layout.addWidget(self.found_hint)
         layout.addSpacing(8)
         layout.addWidget(QLabel(self.tr("Name in Steam")))

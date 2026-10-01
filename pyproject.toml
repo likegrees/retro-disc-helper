@@ -5,6 +5,7 @@ description = "Helper to run CUE/BIN PC games on Proton (SteamOS)"
 requires-python = ">=3.12"
 dependencies = [
     "PySide6>=6.7",
+    "die-python>=0.5",
     "pycdlib>=1.14",
     "vdf>=3.4",
 ]
@@ -36,7 +37,7 @@ python_version = "3.12"
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["pycdlib.*", "vdf.*"]
+module = ["pycdlib.*", "vdf.*", "die.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -18,7 +18,11 @@ It automates the manual Proton workflow for running disc-image games on SteamOS:
 **Copy protection**: the extracted CD and the installed game's `.exe` are checked for protections
 whose disc check Proton cannot pass, with their version when it can be read (for example
 "SecuROM 4.68.00"). The rules for SecuROM, SafeDisc, StarForce, LaserLock and TAGES are ported
-from the signatures of [Detect It Easy](https://github.com/horsicq/Detect-It-Easy) (MIT).
+from the signatures of [Detect It Easy](https://github.com/horsicq/Detect-It-Easy) (MIT). This quick
+check runs everywhere; **Troubleshoot → Deep scan** runs the full Detect It Easy engine
+([die-python](https://pypi.org/project/die-python/), Apache-2.0), which recognizes more protections
+and their versions. Its own Qt 6 cannot share a process with PySide6, so it runs as a separate
+helper (`retrodisc-die` in the AppImage). From a terminal: `retrodisc protection Game.exe`.
 
 **Why drive R:** Proton deletes `S:` and `T:` from the prefix at every launch (they belong to its
 "game drive" and "steam drive" options), and Wine gives removable devices such as the microSD the

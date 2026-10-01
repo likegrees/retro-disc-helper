@@ -89,6 +89,27 @@ wheels = [
 ]
 
 [[package]]
+name = "die-python"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nanobind" },
+    { name = "setuptools" },
+    { name = "wheel" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/3b/137c30fee2ed4b8fcea8f26dcb870098bbed1cdfc5d63a90f354ec061e48/die_python-0.5.0-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:ad80288406ec62ceae08618a2ef68d19c240b4c4b3948c5f5db4fff694128326", size = 5357591, upload-time = "2026-02-20T21:08:38.033Z" },
+    { url = "https://files.pythonhosted.org/packages/89/25/3b59f114bd53bb71a51ab95df3d9cfb1160edb48ca4b6f3653b2a92af756/die_python-0.5.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:5e521db5b1c443b0108ade124e849ca50ac6347fff324f1aaa5df1ce35864825", size = 67989939, upload-time = "2026-02-20T21:08:59.086Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/6d/68bf65bf9dc88972ef5f090d1ff24eab6f296fc8297aa449c5a1e3c02804/die_python-0.5.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:cb0775de6a5869a088416955b0f6c9d3f2e6a410802075d989776afac4df0993", size = 57409929, upload-time = "2026-02-20T21:08:34.593Z" },
+    { url = "https://files.pythonhosted.org/packages/58/23/553e6b90f50a3afa514e120e33fdf1f8d459616d093b268f2cfcd89f47ef/die_python-0.5.0-cp312-cp312-win_amd64.whl", hash = "sha256:3c4c62eae440b34b8200e11c8c5946399e07cae5bc355371f2145d20a950098b", size = 9754112, upload-time = "2026-02-20T21:09:02.686Z" },
+    { url = "https://files.pythonhosted.org/packages/43/23/5faa143a60e757d51b7a6d6e23504e5293da3b6655694c809ad4385ca122/die_python-0.5.0-cp313-abi3-macosx_14_0_x86_64.whl", hash = "sha256:a8220b7efd8ebb8e49bf20285e7c3f962400f54af4aad7e1bbfc021dfe7bef33", size = 5357230, upload-time = "2026-02-20T21:09:04.907Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/e2/dcd482242c7778cacc1fb4d743d86f4b7e57e408c00f00fb37ecf898c9c4/die_python-0.5.0-cp313-abi3-manylinux_2_34_aarch64.whl", hash = "sha256:233b188a758ca72231b76a6a852925e9f40338fbea642eb1392c16214d22bbd8", size = 67989960, upload-time = "2026-02-20T21:08:24.474Z" },
+    { url = "https://files.pythonhosted.org/packages/12/1b/1d50ab75bfb581c2b828668938d651288e4d069e24b97cb589bac73ffc7b/die_python-0.5.0-cp313-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:b68a8ce0ae4617ca242c69e29933b5086370b17ebbc4850b26bd29cc5c5ca1b6", size = 57409812, upload-time = "2026-02-20T21:09:10.906Z" },
+    { url = "https://files.pythonhosted.org/packages/07/08/fb63c07fa224359d95608e07d25b87ae36efa894ba9bbf9d524ce0f51b2e/die_python-0.5.0-cp313-abi3-win_amd64.whl", hash = "sha256:1c45e6589e1b6e85b1cf6a9d24df7591b6ec9b03ad275065d757764420a518aa", size = 10016477, upload-time = "2026-02-20T21:09:19.485Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/69/f45ce1ce6f9218e6b6d85ad19172d93565091edeff3c9c4eb60f49f24dc3/die_python-0.5.0-cp313-abi3-win_arm64.whl", hash = "sha256:4a46d2669d52c766c3356cbbb45a3467a4a477a60c4a16364924b28f0fd2d7e2", size = 10892325, upload-time = "2026-02-20T21:09:14.528Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -274,6 +295,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nanobind"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/1f/e28fae715401e8f57400e72aeaff4fde12046d31828164f34f61f0816da8/nanobind-3.1.0.tar.gz", hash = "sha256:6661e3dc1434d78781ccf7913442d90361dab395c3424efadb63bbb6ddea7ea3", size = 1145390, upload-time = "2026-09-18T15:59:42.726Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/c1/6fd56f7a02a478d54a1a3e6000eccd34b446b1c45cbf0d002fe5d2937126/nanobind-3.1.0-py3-none-any.whl", hash = "sha256:96984dbe8154ffb86e653b1b60aaeed6985c710c5e75ad0279eb87943c66292d", size = 316917, upload-time = "2026-09-18T15:59:37.796Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -445,6 +475,7 @@ name = "retrodisc"
 version = "0.4.2"
 source = { editable = "." }
 dependencies = [
+    { name = "die-python" },
     { name = "pycdlib" },
     { name = "pyside6" },
     { name = "vdf" },
@@ -462,6 +493,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "die-python", specifier = ">=0.5" },
     { name = "pycdlib", specifier = ">=1.14" },
     { name = "pyside6", specifier = ">=6.7" },
     { name = "vdf", specifier = ">=3.4" },
@@ -537,4 +569,16 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/44/7f/74192f47d67c8bf3c47bf0d8487b3457614c2c98d58b6617721d217f3f79/vdf-3.4.tar.gz", hash = "sha256:fd5419f41e07a1009e5ffd027c7dcbe43d1f7e8ef453aeaa90d9d04b807de2af", size = 11132, upload-time = "2021-05-22T09:26:05.252Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/60/6456b687cf55cf60020dcd01f9bc51561c3cc84f05fd8e0feb71ce60f894/vdf-3.4-py2.py3-none-any.whl", hash = "sha256:68c1a125cc49e343d535af2dd25074e9cb0908c6607f073947c4a04bbe234534", size = 10357, upload-time = "2021-05-22T09:26:03.948Z" },
+]
+
+[[package]]
+name = "wheel"
+version = "0.48.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/20/50ed6bdf27dec98b568a8ae25dc599f35baa3d9709f9e83fd1edb56b9a90/wheel-0.48.0.tar.gz", hash = "sha256:94800765601e9171bf5d58d066e640662842bcedcbab982b2c90787a2c987322", size = 66471, upload-time = "2026-08-11T22:02:27.327Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/29/69cfbb602cd91690c55d38ba9fe53e6a7e76a6fa647bf38f19c138d25449/wheel-0.48.0-py3-none-any.whl", hash = "sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab", size = 33320, upload-time = "2026-08-11T22:02:26.1Z" },
 ]

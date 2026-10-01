@@ -57,6 +57,10 @@ jobs:
           output="$("$file" --appimage-extract-and-run convert 2>&1 || true)"
           echo "$output"
           grep -q "usage: retrodisc convert" <<< "$output"
+          # The app starts the bundled Detect It Easy helper (its own Qt) and gets an answer.
+          output="$("$file" --appimage-extract-and-run protection /nonexistent.exe 2>&1)"
+          echo "$output"
+          grep -q "nonexistent.exe: Detect It Easy: file not found" <<< "$output"
 
       - uses: actions/upload-artifact@v4
         with:

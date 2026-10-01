@@ -1,4 +1,6 @@
-"""Entry point: `retrodisc` (GUI) or `retrodisc convert <file.cue> [out.iso]`."""
+"""Entry point: `retrodisc` (GUI), `retrodisc convert <file.cue> [out.iso]`,
+`retrodisc protection <file.exe>...` (copy protection check from a terminal),
+or `retrodisc die-scan <file>...` (Detect It Easy, used by the GUI in a child process)."""
 
 from __future__ import annotations
 
@@ -22,6 +24,26 @@ def _cli_convert(args: list[str]) -> int:
 
     convert_to_iso(parse_cue(cue), output, progress)
     print(f"\n{output}")
+    return 0
+
+
+def _cli_protection(args: list[str]) -> int:
+    """`retrodisc protection FILE...`: quick check and Detect It Easy deep scan, as in the app."""
+    from retrodisc.core import deep_scan, protection
+
+    if not args:
+        print("usage: retrodisc protection <file.exe>...", file=sys.stderr)
+        return 2
+    paths = [Path(a) for a in args]
+    for path in paths:
+        quick = ", ".join(d.label for d in protection.detect_executable(path)) or "none"
+        print(f"{path.name}: quick check: {quick}")
+    if not deep_scan.available():
+        print("Detect It Easy: not installed")
+        return 0
+    for result in deep_scan.scan(paths):
+        found = "; ".join(f"{f.type}: {f.label}" for f in result.findings) or "nothing"
+        print(f"{result.path.name}: Detect It Easy: {result.error or found}")
     return 0
 
 
@@ -59,6 +81,12 @@ def _run_gui() -> int:
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "convert":
         return _cli_convert(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "protection":
+        return _cli_protection(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "die-scan":
+        from retrodisc.core.deep_scan import run_cli
+
+        return run_cli(sys.argv[2:])
     return _run_gui()
 
 
