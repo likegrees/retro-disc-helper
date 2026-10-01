@@ -68,9 +68,8 @@ def test_rows() -> None:
     assert rows["Detect It Easy: SecuROM 4.68.00"].status is Status.WARN
     assert "Lemans.exe" in rows["Detect It Easy: SecuROM 4.68.00"].detail
     assert rows["Detect It Easy: Lemans.exe"].status is Status.INFO
-    assert rows["Detect It Easy: Lemans.exe"].detail == (
-        "Protector: SecuROM 4.68.00; Library: Direct3D 8"
-    )
+    # The details row leaves out the protection: it already has its own row.
+    assert rows["Detect It Easy: Lemans.exe"].detail == "Library: Direct3D 8"
     assert "bad.exe" in rows["Detect It Easy: not scanned"].detail
     clean = deep_scan_checks([FileResult(Path("/a.exe"), [])], game)
     assert clean[0].status is Status.OK and "no copy protection" in clean[0].detail
@@ -100,6 +99,41 @@ def test_troubleshoot_button(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     dialog = troubleshoot.TroubleshootDialog(lib, game, None)
     _alive.append(dialog)
+    texts = [w.text() for w in dialog.area.widget().findChildren(QLabel)]
+    assert sum("SecuROM" in t for t in texts) == 0  # plain exe: no quick-check hit
     dialog._deep_scan()
     texts = [w.text() for w in dialog.area.widget().findChildren(QLabel)]
-    assert any("Detect It Easy: SecuROM 4.68.00" in t for t in texts)
+    assert sum("SecuROM" in t for t in texts) == 1  # once, from Detect It Easy
+
+
+def test_deep_scan_replaces_quick_protection_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    exe = make_pe(tmp_path / "Lemans.exe", [".cms_t", ".cms_d"], overlay=SECUROM_OVERLAY)
+    game = Game(name="G", cue=str(tmp_path / "x.cue"), exe=str(exe))
+    lib = Library(tmp_path / "games.json")
+    lib.add(game)
+    monkeypatch.setattr(deep_scan, "available", lambda: True)
+    monkeypatch.setattr(
+        deep_scan,
+        "scan",
+        lambda paths: [
+            FileResult(
+                p, [Finding("Protector", "SecuROM", "4.68.00"), Finding("Library", "Direct3D", "8")]
+            )
+            for p in paths
+        ],
+    )
+    dialog = troubleshoot.TroubleshootDialog(lib, game, None)
+    _alive.append(dialog)
+
+    def securom_rows() -> list[str]:
+        return [
+            w.text() for w in dialog.area.widget().findChildren(QLabel) if "SecuROM" in w.text()
+        ]
+
+    assert len(securom_rows()) == 1 and "Copy protection" in securom_rows()[0]  # quick check
+    dialog._deep_scan()
+    assert len(securom_rows()) == 1 and "Detect It Easy: SecuROM 4.68.00" in securom_rows()[0]

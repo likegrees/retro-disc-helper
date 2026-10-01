@@ -29,6 +29,7 @@ class CheckResult:
     detail: str = ""
     fix: Callable[[], None] | None = None
     fix_label: str = ""
+    kind: str = ""  # "protection" for the quick copy protection check
 
 
 def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
@@ -99,6 +100,7 @@ def run_checks(game: Game, steam: Steam | None) -> list[CheckResult]:
                 tr("Copy protection: {name}").format(name=hit.label),
                 Status.WARN,
                 protection_advice(", ".join(hit.files)),
+                kind="protection",
             )
         )
 
@@ -374,12 +376,13 @@ def deep_scan_checks(results: list[deep_scan.FileResult], game: Game) -> list[Ch
         )
     main = next((r for r in results if game.exe and str(r.path) == game.exe), None)
     main = main or next((r for r in results if r.findings), None)
-    if main is not None and main.findings:
+    details = [f for f in main.findings if not f.is_protection] if main is not None else []
+    if main is not None and details:  # protections already have their own row above
         rows.append(
             CheckResult(
                 tr("Detect It Easy: {file}").format(file=main.path.name),
                 Status.INFO,
-                "; ".join(f"{f.type}: {f.label}" for f in main.findings),
+                "; ".join(f"{f.type}: {f.label}" for f in details),
             )
         )
     failed = [r for r in results if r.error]

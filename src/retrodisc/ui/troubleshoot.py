@@ -68,6 +68,9 @@ class TroubleshootDialog(QDialog):
             show_error(self, exc)
             return
         if self.deep_results is not None:
+            # Detect It Easy supersedes the quick check: show protections only once.
+            if any(not r.error for r in self.deep_results):
+                results = [r for r in results if r.kind != "protection"]
             results = deep_scan_checks(self.deep_results, self.game) + results
         content = QWidget()
         grid = QGridLayout(content)
